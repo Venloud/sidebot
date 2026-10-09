@@ -106,3 +106,11 @@ On startup, SideBot posts and pins one server guide in `#welcome` containing the
 ## Clearing messages and rank-role monitoring
 
 `bot clear 20` or `bot clean 20` deletes up to 20 recent unpinned messages in the invoking channel. Both require Manage Messages for the caller and SideBot; the bot reports the actual number removed. Allowed range is 1 to 100, default 50. SideBot also checks saved XP scores every 15 minutes and repairs members' earned ranking roles (NPC through Himothy) when missing or inconsistent; it does not automatically modify unrelated roles. Requires Manage Roles and appropriate role hierarchy.
+
+## The 509 Control Center dashboard
+
+The branded dashboard lives in `dashboard/index.html`, themed with green, black, white and brown inspired by the SideBot icon and banner. Workflow `.github/workflows/dashboard-pages.yml` deploys this static site to GitHub Pages when Pages is enabled under **Repository Settings → Pages → Build and deployment → GitHub Actions**. Availability and public access depend on the private repository's GitHub Pages plan/settings. Do not put API tokens in this website. Its **Restart controls** link opens the authenticated GitHub Actions page, where an admin can cancel an existing run and manually dispatch a replacement. It is **not** yet an API-powered one-click restart, and it does not show real-time private bot metrics. A secure backend with authentication is required for those capabilities.
+
+## Free game announcements
+
+SideBot checks the GamerPower API every two hours for active full-game giveaways and posts newly identified items to `#free-games`, with an attribution link to GamerPower.com. The first pass records active offers but does not post them, to avoid flooding the channel when first enabled. Already-announced IDs are stored in `SideBot/free_games_seen.json` and persisted with the GitHub Actions state cache. The source is a third-party tracker; announcements should be checked for conditions and availability. If the cache disappears or the bot is offline, notices may be missed or repeated. No API key required.
