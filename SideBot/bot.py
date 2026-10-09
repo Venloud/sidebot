@@ -144,7 +144,7 @@ def is_invite_response(raw: str) -> bool:
 
 # ── Command-detection helper ───────────────────────────────────
 _REGISTERED_COMMANDS = {
-    "whoslive", "clean", "create_role", "assign_role",
+    "whoslive", "clean", "create", "create_role", "assign_role",
     "create_poll", "assign_poll_role", "invite", "send", "wipe",
     "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks",
 }
@@ -1176,6 +1176,7 @@ async def list_commands(ctx):
         "ping": "Check bot latency and monitor status",
         "clean": "Delete messages (Manage Messages required)",
         "create_role": "Create a Discord role (Manage Roles required)",
+        "create": "Create channel, thread, role, poll, or scheduled event. Use bot create for syntax.",
         "assign_role": "Assign a member role (Administrator required)",
         "whoslive": "Check monitored Twitch and TikTok accounts",
         "create_poll": "Post a poll (Manage Roles required)",
@@ -1884,6 +1885,140 @@ async def clean(ctx, amount: int = 50):
         return
     await ctx.channel.purge(limit=amount)
     await ctx.send(f"**{amount} mesaj yo efase.**", delete_after=5)
+
+@bot.group(name="create", invoke_without_command=True)
+async def create_group(ctx):
+    """Show creation options without creating anything."""
+    await ctx.send(
+        "**SideBot Create Commands**\n"
+        "\`bot create channel CHANNEL_NAME\`  Create a text channel\n"
+        "\`bot create thread THREAD_NAME\`  Start a thread in this channel\n"
+        "\`bot create role ROLE_NAME\`  Create a permission-free role\n"
+        "\`bot create poll Messi | Ronaldo | X\`  Create a multi-choice poll\n"
+        "\`bot create event TITLE | 2026-10-20 19:00 | 60 | #voice-channel\`  Schedule a voice event\n"
+        "Event time must use UTC, duration is minutes. Only moderators can create resources."
+    )
+
+
+@create_group.command(name="channel")
+@commands.has_permissions(manage_channels=True)
+@commands.bot_has_permissions(manage_channels=True)
+async def create_channel_sub(ctx, *, name: str):
+    name = name.strip()
+    if not 1 <= len(name) <= 90:
+        await ctx.send("Channel name must be between 1 and 90 characters.")
+        return
+    if nextcord.utils.get(ctx.guild.text_channels, name=name):
+        await ctx.send("That channel already exists.")
+        return
+    try:
+        channel = await ctx.guild.create_text_channel(name, reason=f"Requested by {ctx.author}")
+        await ctx.send(f"Created {channel.mention}")
+    except nextcord.DiscordException as exc:
+        await ctx.send(f"Couldn't create channel: {exc}")
+
+
+@create_group.command(name="thread")
+@commands.has_permissions(create_public_threads=True)
+@commands.bot_has_permissions(create_public_threads=True, send_messages_in_threads=True)
+async def create_thread_sub(ctx, *, name: str):
+    name = name.strip()
+    if not isinstance(ctx.channel, nextcord.TextChannel):
+        await ctx.send("Use this command inside a text channel.")
+        return
+    if not 1 <= len(name) <= 100:
+        await ctx.send("Thread name must be between 1 and 100 characters.")
+        return
+    try:
+        message = await ctx.send(f"Thread topic: **{nextcord.utils.escape_markdown(name)}**")
+        thread = await message.create_thread(name=name)
+        await ctx.send(f"Created thread {thread.mention}")
+    except nextcord.DiscordException as exc:
+        await ctx.send(f"Couldn't create thread: {exc}")
+
+
+@create_group.command(name="role")
+@commands.has_permissions(manage_roles=True)
+@commands.bot_has_permissions(manage_roles=True)
+async def create_role_sub(ctx, *, name: str):
+    name = name.strip()
+    if not 1 <= len(name) <= 90:
+        await ctx.send("Role name must be between 1 and 90 characters.")
+        return
+    if nextcord.utils.get(ctx.guild.roles, name=name):
+        await ctx.send("That role already exists.")
+        return
+    try:
+        role = await ctx.guild.create_role(
+            name=name, permissions=nextcord.Permissions.none(),
+            reason=f"Requested by {ctx.author}",
+        )
+        await ctx.send(f"Created role **{nextcord.utils.escape_markdown(role.name)}**.")
+    except nextcord.DiscordException as exc:
+        await ctx.send(f"Couldn't create role: {exc}")
+
+
+@create_group.command(name="poll")
+@commands.has_permissions(manage_messages=True)
+@commands.bot_has_permissions(send_messages=True, add_reactions=True)
+async def create_poll_sub(ctx, *, options: str):
+    """Example: bot create poll Messi | Ronaldo | X"""
+    names = [item.strip() for item in options.split("|")]
+    if not 2 <= len(names) <= 9 or any(not n or len(n) > 90 for n in names):
+        await ctx.send("Enter 2 to 9 options separated by \`|\`. Example: \`bot create poll Messi | Ronaldo | X\`")
+        return
+    marks = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"]
+    body = "**Vote for your choice**\n" + "\n".join(
+        f"{marks[i]} {nextcord.utils.escape_markdown(name)}"
+        for i, name in enumerate(names)
+    )
+    try:
+        poll = await ctx.send(body, allowed_mentions=nextcord.AllowedMentions.none())
+        for mark in marks[:len(names)]:
+            await poll.add_reaction(mark)
+    except nextcord.DiscordException as exc:
+        await ctx.send(f"Couldn't create poll: {exc}")
+
+
+@create_group.command(name="event")
+@commands.has_permissions(manage_events=True)
+@commands.bot_has_permissions(manage_events=True)
+async def create_event_sub(ctx, *, details: str):
+    """TITLE | YYYY-MM-DD HH:MM UTC | MINUTES | #voice-channel"""
+    from datetime import timezone, timedelta
+    fields = [x.strip() for x in details.split("|")]
+    if len(fields) != 4 or not fields[0] or len(fields[0]) > 100:
+        await ctx.send(
+            "Usage: \`bot create event Game Night | 2026-10-20 19:00 | 60 | #voice-channel\` (UTC)"
+        )
+        return
+    try:
+        start = datetime.strptime(fields[1], "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+        duration = int(fields[2])
+        if not 15 <= duration <= 1440 or start <= datetime.now(timezone.utc):
+            raise ValueError("Event must be in the future, duration 15 to 1440 minutes.")
+        match = re.fullmatch(r"<#(\d+)>", fields[3])
+        channel = ctx.guild.get_channel(int(match.group(1))) if match else None
+        if not isinstance(channel, (nextcord.VoiceChannel, nextcord.StageChannel)):
+            raise ValueError("Mention an existing voice or stage channel.")
+    except ValueError as exc:
+        await ctx.send(f"Invalid event details: {exc}")
+        return
+    try:
+        event = await ctx.guild.create_scheduled_event(
+            name=fields[0],
+            entity_type=nextcord.ScheduledEventEntityType.voice if isinstance(channel, nextcord.VoiceChannel)
+                        else nextcord.ScheduledEventEntityType.stage_instance,
+            start_time=start,
+            end_time=start + timedelta(minutes=duration),
+            channel=channel,
+            description=f"Created by {ctx.author}",
+            reason=f"Requested by {ctx.author}",
+        )
+        await ctx.send(f"Scheduled **{nextcord.utils.escape_markdown(event.name)}** for {fields[1]} UTC.")
+    except nextcord.DiscordException as exc:
+        await ctx.send(f"Couldn't create event: {exc}")
+
 
 @bot.command(name="create_role")
 @commands.has_permissions(manage_roles=True)
