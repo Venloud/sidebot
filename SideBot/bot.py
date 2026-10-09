@@ -1241,16 +1241,72 @@ async def role_permissions_command(ctx, *, role_name: str = ""):
         await ctx.send(body, allowed_mentions=nextcord.AllowedMentions.none())
 
 
+def draw_rank_card(display_name, avatar_bytes, xp, placement):
+    """Generate a Discord-ready ranking card without writing files to disk."""
+    from io import BytesIO
+    from PIL import Image, ImageDraw, ImageFont, ImageOps
+    width, height = 950, 310
+    image = Image.new("RGB", (width, height), (14, 18, 32))
+    draw = ImageDraw.Draw(image)
+    name, floor, color = rank_for_xp(xp)
+    next_rank = next((entry for entry in XP_RANKS if entry[1] > xp), None)
+    accent = ((color >> 16) & 255, (color >> 8) & 255, color & 255)
+    draw.rounded_rectangle((18, 18, width - 18, height - 18), radius=28, fill=(26, 32, 52), outline=accent, width=3)
+    draw.rounded_rectangle((206, 34, 916, 87), radius=14, fill=(37, 44, 68))
+    regular = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    heavy = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    def font(size, bold=False):
+        try:
+            return ImageFont.truetype(heavy if bold else regular, size)
+        except OSError:
+            return ImageFont.load_default()
+    draw.text((228, 45), display_name[:29], font=font(30, True), fill="white")
+    draw.text((210, 105), "RANK", font=font(16, True), fill=(168, 177, 203))
+    draw.text((210, 127), name.upper(), font=font(34, True), fill=accent)
+    draw.text((675, 108), f"#{placement} SERVER", font=font(19, True), fill=(220, 225, 238))
+    draw.text((210, 192), f"{xp:,} XP", font=font(21, True), fill="white")
+    draw.rounded_rectangle((210, 235, 916, 259), radius=12, fill=(65, 73, 97))
+    if next_rank:
+        progress = max(0.0, min(1.0, (xp - floor) / (next_rank[1] - floor)))
+        fill_width = int(706 * progress)
+        if fill_width:
+            draw.rounded_rectangle((210, 235, 210 + fill_width, 259), radius=min(12, fill_width // 2), fill=accent)
+        draw.text((595, 194), f"Next: {next_rank[0]} ({next_rank[1]:,} XP)", font=font(16), fill=(180, 188, 211))
+    else:
+        draw.rounded_rectangle((210, 235, 916, 259), radius=12, fill=accent)
+        draw.text((610, 194), "MAX RANK UNLOCKED", font=font(16, True), fill=accent)
+    try:
+        avatar = Image.open(BytesIO(avatar_bytes)).convert("RGB").resize((150, 150))
+        mask = Image.new("L", (150, 150), 0)
+        ImageDraw.Draw(mask).ellipse((0, 0, 149, 149), fill=255)
+        image.paste(avatar, (39, 76), mask)
+    except (OSError, ValueError, TypeError):
+        draw.ellipse((39, 76, 189, 226), fill=accent)
+        draw.text((85, 125), "?", font=font(42, True), fill="white")
+    output = BytesIO()
+    image.save(output, format="PNG")
+    output.seek(0)
+    return output
+
+
 @bot.command(name="rank")
+@commands.cooldown(1, 5, commands.BucketType.user)
 async def rank_command(ctx, member: nextcord.Member = None):
     if not ctx.guild:
         return
     member = member or ctx.author
-    xp = max(0, int(xp_scores.get(str(ctx.guild.id), {}).get(str(member.id), 0)))
-    name, threshold, _ = rank_for_xp(xp)
-    next_rank = next((r for r in XP_RANKS if r[1] > xp), None)
-    progress = f"Next rank: {next_rank[0]} at {next_rank[1]} XP" if next_rank else "Maximum rank reached"
-    await ctx.send(f"**{member.display_name}** | Rank: **{name}** | **{xp} XP** | {progress}", allowed_mentions=nextcord.AllowedMentions.none())
+    scores = xp_scores.get(str(ctx.guild.id), {})
+    xp = max(0, int(scores.get(str(member.id), 0)))
+    placement = 1 + sum(int(score) > xp for score in scores.values())
+    try:
+        avatar_bytes = await member.display_avatar.read()
+        card = await asyncio.to_thread(draw_rank_card, member.display_name, avatar_bytes, xp, placement)
+        await ctx.send(file=nextcord.File(card, filename="sidebot-rank.png"))
+    except (nextcord.DiscordException, OSError, ValueError) as exc:
+        print(f"[rank card] Failed: {exc}")
+        name, _, _ = rank_for_xp(xp)
+        await ctx.send(f"**{member.display_name}** | {name} | {xp:,} XP | Server rank #{placement}",
+                       allowed_mentions=nextcord.AllowedMentions.none())
 
 
 @bot.command(name="leaderboard", aliases=["top"])
