@@ -1,0 +1,68 @@
+{
+  "status": "asset pack, not renderer integration",
+  "card_size": [
+    2172,
+    724
+  ],
+  "badge_mapping": {
+    "1": {
+      "rank": "NPC",
+      "file": "badges/rank_01_npc.png"
+    },
+    "2": {
+      "rank": "Random",
+      "file": "badges/rank_02_random.png"
+    },
+    "3": {
+      "rank": "Side Character",
+      "file": "badges/rank_03_side_character.png"
+    },
+    "4": {
+      "rank": "Regular",
+      "file": "badges/rank_04_regular.png"
+    },
+    "5": {
+      "rank": "Main Character",
+      "file": "badges/rank_05_main_character.png"
+    },
+    "6": {
+      "rank": "Certified",
+      "file": "badges/rank_06_certified.png"
+    },
+    "7": {
+      "rank": "GOAT",
+      "file": "badges/rank_07_goat.png"
+    },
+    "8": {
+      "rank": "Himothy",
+      "file": "badges/rank_08_himothy.png"
+    }
+  },
+  "provided": [
+    "badges/rank_01_npc.png",
+    "badges/rank_02_random.png",
+    "badges/rank_03_side_character.png",
+    "badges/rank_04_regular.png",
+    "badges/rank_05_main_character.png",
+    "badges/rank_06_certified.png",
+    "badges/rank_07_goat.png",
+    "badges/rank_08_himothy.png",
+    "backgrounds/full_card_template_reference.png"
+  ],
+  "still_needed": [
+    "backgrounds/bg_base.png",
+    "frames/frame_outline.png",
+    "frames/avatar_frame.png",
+    "frames/badge_slot_frame.png",
+    "overlays/content_overlay.png",
+    "overlays/footer_overlay.png",
+    "overlays/max_rank_glow.png",
+    "progress/progress_bar_base.png",
+    "progress/progress_bar_fill_mask.png",
+    "progress/progress_bar_max.png",
+    "icons/discord.png",
+    "icons/messages.png",
+    "icons/server_rank.png",
+    "icons/calendar.png"
+  ]
+}

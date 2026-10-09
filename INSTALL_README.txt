@@ -1,0 +1,1 @@
+Install by extracting at root of Venloud/sidebot. Upload SideBot/assets/rank/ binary PNGs to GitHub. Python asset renderer is already committed as SideBot/rank_card_assets.py. Background and frame remain flattened together. Verify render placement before production.
