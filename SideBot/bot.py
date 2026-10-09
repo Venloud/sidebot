@@ -146,7 +146,7 @@ def is_invite_response(raw: str) -> bool:
 _REGISTERED_COMMANDS = {
     "whoslive", "clean", "create_role", "assign_role",
     "create_poll", "assign_poll_role", "invite", "send", "wipe",
-    "join", "leave", "list", "rank", "leaderboard", "top", "ranks", "setupranks",
+    "join", "leave", "list", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks",
 }
 _INLINE_COMMANDS = {"kiye la"}  # handled inline in on_message, not via @bot.command
 
@@ -1174,6 +1174,7 @@ async def list_commands(ctx):
         "join": "Join a voice channel",
         "leave": "Leave a voice channel",
         "list": "Show this command list",
+        "roleperms": "Show each role’s server permissions (Administrator only)",
     }
     lines = ["**SideBot commands**", "Prefixes: `bot`, `sidebot`, `bobot`, `side bot`, `!`"]
     for command in sorted(bot.commands, key=lambda item: item.name):
@@ -1200,6 +1201,33 @@ async def list_commands(ctx):
         buffer += line + "\n"
     if buffer:
         await ctx.send(buffer, allowed_mentions=nextcord.AllowedMentions.none())
+
+
+@bot.command(name="roleperms", aliases=["rolepermissions"])
+@commands.has_permissions(administrator=True)
+async def role_permissions_command(ctx, *, role_name: str = ""):
+    """Show role permissions. Server administrators only."""
+    if ctx.guild is None:
+        return
+    if role_name:
+        role = next((r for r in ctx.guild.roles if r.name.casefold() == role_name.casefold()), None)
+        if role is None:
+            await ctx.send("Role not found. Use `bot roleperms` to see available roles.")
+            return
+        roles = [role]
+    else:
+        roles = sorted(ctx.guild.roles, key=lambda role: role.position, reverse=True)
+
+    for role in roles:
+        allowed = [name.replace("_", " ").title() for name, enabled in role.permissions if enabled]
+        perms = ", ".join(allowed) if allowed else "No server-wide permissions"
+        if role.permissions.administrator:
+            perms = "**Administrator: bypasses channel restrictions**. " + perms
+        heading = f"**{nextcord.utils.escape_markdown(role.name)}**"
+        body = f"{heading}\n{perms}"
+        if len(body) > 1900:
+            body = body[:1890] + "..."
+        await ctx.send(body, allowed_mentions=nextcord.AllowedMentions.none())
 
 
 @bot.command(name="rank")
