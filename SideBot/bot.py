@@ -37,7 +37,7 @@ intents.members = True
 intents.presences = True
 
 bot = commands.Bot(
-    command_prefix=commands.when_mentioned_or("!", "side bot ", "bot "),
+    command_prefix=commands.when_mentioned_or("!", "side bot ", "sidebot ", "bobot ", "bot "),
     intents=intents,
 )
 
@@ -153,7 +153,7 @@ _INLINE_COMMANDS = {"kiye la"}  # handled inline in on_message, not via @bot.com
 def is_command_text(text: str) -> bool:
     """Return True if text looks like a bot command (with or without 'bot ' prefix)."""
     s = text.lower().strip()
-    for pfx in ("bot ", "side bot ", "!"):
+    for pfx in ("bot ", "bobot ", "sidebot ", "side bot ", "!"):
         if s.startswith(pfx):
             s = s[len(pfx):]
             break
@@ -1024,7 +1024,7 @@ def social_query(message):
         return None
     text = message.content.strip()
     match = re.match(
-        r"^(?:bot|side bot)\s+(?:(?:what(?:'s| is)?|give|show|get)\s+)?(.+?)\s+"
+        r"^(?:bot|bobot|sidebot|side bot)\s+(?:(?:what(?:'s| is)?|give|show|get)\s+)?(.+?)\s+"
         r"(youtube|tiktok|twitch|instagram|insta|yt|socials?|links?)\s*\??$",
         text, flags=re.IGNORECASE
     )
@@ -1135,7 +1135,7 @@ async def grant_message_xp(message):
         return
     # Do not award points for commands, very short messages, or repeated spam.
     content = message.content.strip()
-    if len(content) < 8 or content.startswith(("!", "/")) or content.lower().startswith(("bot ", "side bot ")):
+    if len(content) < 8 or content.startswith(("!", "/")) or content.lower().startswith(("bot ", "bobot ", "sidebot ", "side bot ")):
         return
     from time import monotonic
     key = (message.guild.id, message.author.id)
@@ -1329,6 +1329,9 @@ async def on_message(message):
         return
 
     content = message.content.lower()
+    # Normalize the aliases for older inline commands and help triggers.
+    if content.startswith(("bobot ", "sidebot ", "side bot ")):
+        content = "bot " + content.split(" ", 1)[1]
 
     if (
     content.startswith("bot saw util") or
