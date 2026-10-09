@@ -144,7 +144,7 @@ def is_invite_response(raw: str) -> bool:
 
 # ── Command-detection helper ───────────────────────────────────
 _REGISTERED_COMMANDS = {
-    "whoslive", "clean", "dayone", "create", "create_role", "assign_role",
+    "whoslive", "clean", "clear", "dayone", "create", "create_role", "assign_role",
     "create_poll", "assign_poll_role", "invite", "send", "wipe",
     "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks",
 }
@@ -745,6 +745,8 @@ async def on_ready():
         dayone_expiry_check.start()
     if not welcome_cleanup.is_running():
         welcome_cleanup.start()
+    if not rank_role_monitor.is_running():
+        rank_role_monitor.start()
     for guild in bot.guilds:
         await ensure_rank_roles(guild)
         await ensure_welcome_guide(guild)
@@ -1284,7 +1286,7 @@ async def list_commands(ctx):
         "ranks": "View all rank thresholds",
         "setupranks": "Create rank roles (Manage Roles required)",
         "ping": "Check bot latency and monitor status",
-        "clean": "Delete messages (Manage Messages required)",
+        "clean": "Delete messages (alias: clear; Manage Messages required)",
         "create_role": "Create a Discord role (Manage Roles required)",
         "create": "Create channel, thread, role (with permission flags), poll, or event. Use bot create for syntax.",
         "dayone": "Set up private day-one channel with temporary or permanent password access",
@@ -1513,6 +1515,32 @@ async def ranks_command(ctx):
     if not ctx.guild:
         return
     await ctx.send("**SideBot Ranks**\n" + "\n".join(f"**{name}**: {xp} XP" for name, xp, _ in XP_RANKS))
+
+
+@tasks.loop(minutes=15)
+async def rank_role_monitor():
+    """Reconcile XP rank roles, including after manual role edits or restarts."""
+    for guild in bot.guilds:
+        if not guild.me.guild_permissions.manage_roles:
+            continue
+        try:
+            roles = await ensure_rank_roles(guild)
+            if len(roles) != len(XP_RANKS):
+                continue
+            for user_id, earned in list(xp_scores.get(str(guild.id), {}).items()):
+                member = guild.get_member(int(user_id))
+                if member and not member.bot:
+                    expected = roles.get(rank_for_xp(max(0, int(earned)))[0])
+                    existing = [role for role in member.roles if role in roles.values()]
+                    if expected and (expected not in existing or len(existing) != 1):
+                        await apply_rank_role(member, max(0, int(earned)))
+        except (nextcord.DiscordException, ValueError, TypeError) as exc:
+            print(f"Rank role monitor error in {guild.name}: {exc}")
+
+
+@rank_role_monitor.before_loop
+async def wait_for_rank_role_monitor():
+    await bot.wait_until_ready()
 
 
 @bot.command(name="setupranks")
@@ -2019,14 +2047,15 @@ async def ping(ctx):
     await ctx.send(f"🏓 Pong! {latency} ms | Live monitor: {monitor}")
 
 
-@bot.command(name="clean")
+@bot.command(name="clean", aliases=["clear"])
 @commands.has_permissions(manage_messages=True)
+@commands.bot_has_permissions(manage_messages=True)
 async def clean(ctx, amount: int = 50):
     if not 1 <= amount <= 100:
         await ctx.send("**Chwazi yon kantite ant 1 ak 100.**")
         return
-    await ctx.channel.purge(limit=amount)
-    await ctx.send(f"**{amount} mesaj yo efase.**", delete_after=5)
+    deleted = await ctx.channel.purge(limit=amount, check=lambda message: not message.pinned)
+    await ctx.send(f"**{len(deleted)} mesaj yo efase.**", delete_after=5)
 
 # Day-one vault. Secrets are salted hashes; never print plaintext passwords.
 DAYONE_FILE = os.path.join(os.path.dirname(__file__), "dayone_access.json")
