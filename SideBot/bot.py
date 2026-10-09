@@ -1978,7 +1978,7 @@ async def role_permissions_command(ctx, *, role_name: str = ""):
         await ctx.send(body, allowed_mentions=nextcord.AllowedMentions.none())
 
 
-def draw_rank_card(display_name, avatar_bytes, xp, placement, message_count=0, joined_label="Unknown"):
+def draw_rank_card(display_name, avatar_bytes, xp, placement, message_count=0, joined_label="Unknown", equipped_number=None):
     """Render a personalized card inspired by the blue, red and silver 509 crest."""
     from io import BytesIO
     from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -1989,6 +1989,9 @@ def draw_rank_card(display_name, avatar_bytes, xp, placement, message_count=0, j
     d = ImageDraw.Draw(img)
     name, floor, _ = rank_for_xp(xp)
     number = next(i for i, entry in enumerate(XP_RANKS, 1) if entry[0] == name)
+    equipped_number = int(equipped_number or number)
+    if not 1 <= equipped_number <= number:
+        equipped_number = number
     following = next((r for r in XP_RANKS if r[1] > xp), None)
     blue, red, white = (0, 112, 255), (248, 34, 61), (241, 247, 255)
     regular = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -2040,29 +2043,47 @@ def draw_rank_card(display_name, avatar_bytes, xp, placement, message_count=0, j
     except (OSError, ValueError, TypeError):
         d.text((107, 131), "?", fill=white, font=font(51, True))
     d = ImageDraw.Draw(img)
-    d.text((252, 49), display_name[:23], fill=white, font=font(31, True))
+    display = display_name[:23]
+    name_font = font(31, True)
+    d.text((252, 49), display, fill=white, font=name_font)
     d.text((967, 51), f"#{placement}", fill=white, font=font(32, True), anchor="ra")
 
-    # Each level gets its own crowned metallic shield badge.
-    bx, by = 301, 174
-    level_shades = [
-        (118, 128, 153), (155, 179, 210), (46, 208, 222),
-        (16, 113, 255), (154, 82, 255), (244, 189, 63),
-        (76, 192, 255), (255, 49, 75)
-    ]
-    shade = level_shades[number - 1]
-    outline = [(bx, by-56), (bx+48, by-32), (bx+43, by+23),
-               (bx, by+55), (bx-43, by+23), (bx-48, by-32)]
-    d.polygon(outline, fill=(8, 16, 37))
-    d.line(outline + [outline[0]], fill=shade, width=7, joint="curve")
-    inner = [(bx, by-40), (bx+31, by-23), (bx+27, by+15),
-             (bx, by+36), (bx-27, by+15), (bx-31, by-23)]
-    d.polygon(inner, fill=(23, 39, 70))
-    d.text((bx, by-16), str(number), font=font(38, True), fill=white, anchor="mm")
-    if number >= 5:
-        crowns = [(bx-27, by-63), (bx-18, by-77), (bx-4, by-65),
-                  (bx, by-85), (bx+10, by-65), (bx+25, by-78), (bx+31, by-61)]
-        d.polygon(crowns, fill=shade)
+    def load_rank_badge_asset(rank_number, size):
+        path = os.path.join(RANK_BADGE_ASSET_DIR, f"rank_{rank_number}.png")
+        try:
+            badge = Image.open(path).convert("RGBA")
+            badge.thumbnail((size, size), Image.Resampling.LANCZOS)
+            return badge
+        except (OSError, ValueError):
+            return None
+
+    # Large badge = actual XP rank.
+    current_badge = load_rank_badge_asset(number, 132)
+    if current_badge:
+        img.alpha_composite(current_badge, (235, 104))
+        d = ImageDraw.Draw(img)
+    else:
+        # Safe fallback if an image asset is missing.
+        bx, by = 301, 174
+        shade = [
+            (184, 101, 55), (180, 205, 235), (88, 181, 255), (57, 137, 255),
+            (176, 82, 255), (247, 180, 64), (83, 190, 255), (255, 62, 74)
+        ][number - 1]
+        outline = [(bx, by-56), (bx+48, by-32), (bx+43, by+23),
+                   (bx, by+55), (bx-43, by+23), (bx-48, by-32)]
+        d.polygon(outline, fill=(8, 16, 37))
+        d.line(outline + [outline[0]], fill=shade, width=7, joint="curve")
+        d.text((bx, by-16), str(number), font=font(38, True), fill=white, anchor="mm")
+
+    # Small badge = the unlocked rank badge the member chose to equip.
+    equipped_badge = load_rank_badge_asset(equipped_number, 58)
+    if equipped_badge:
+        name_box = d.textbbox((252, 49), display, font=name_font)
+        equip_x = min(name_box[2] + 14, 625)
+        img.alpha_composite(equipped_badge, (equip_x, 35))
+        d = ImageDraw.Draw(img)
+        d.text((equip_x + 29, 91), "EQUIPPED", font=font(9, True),
+               fill=(160, 180, 215), anchor="ma")
     d.text((370, 119), "RANK", fill=(151, 168, 199), font=font(20, True))
     d.text((370, 149), name.upper(), fill=white, font=font(29 if len(name)<14 else 23, True))
 
