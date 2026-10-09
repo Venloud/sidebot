@@ -23,3 +23,12 @@ Never commit bot tokens or the original `.env`; if the uploaded archive containe
 
 ## Self promotion link memory
 Members can post their YouTube channel, TikTok profile, Twitch channel, or Instagram profile URL in **#self-promote**, **#self-promo**, or **#self-promotion**. SideBot stores the links for that server and Discord user. Ask `bot what @member youtube`, `bot @member instagram`, or `bot @member socials`. Mention the member for best matching. Links saved after deployment are cached between GitHub Actions runs, but caches are not a durable database, and older posts are not imported automatically.
+
+
+## Live notifications for community accounts
+
+Create a text channel named `notifications`, `notification`, or `live-notifications` (falls back to `live`). When members share supported YouTube, Twitch, or TikTok profile URLs in `self-promote`, SideBot remembers their profile per server and checks whether they are streaming. Existing manually tracked Twitch and TikTok names still work. Alerts say `Hey, NAME is live on PLATFORM!` with the stream link. A notification is sent once per observed live session. Live checks occur every 10 minutes, with YouTube limited to hourly checks per saved channel.
+
+**YouTube setup:** Enable YouTube Data API v3 in Google Cloud, then add the `YOUTUBE_API_KEY` repository secret under GitHub Actions. The bot uses official `channels.list` handle resolution and `search.list?eventType=live`; YouTube search calls have a daily quota, so many tracked channels can exceed it. If the API key is missing, YouTube notifications are skipped, without affecting Twitch or TikTok. Channel URLs using `/@handle` and `/channel/UC...` are supported.
+
+**Caveats:** Live notifications start after new links are posted, historical channel messages are not automatically imported. GitHub Actions runners are intermittent; checks and notifications do not run when the runner is stopped, and cache eviction can lose saved profiles and alert state. TikTok web detection is unofficial and may be affected by site changes.
