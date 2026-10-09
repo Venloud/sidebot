@@ -1200,6 +1200,14 @@ async def setup_ranks_command(ctx):
     await ctx.send(f"Configured {len(roles)}/{len(XP_RANKS)} rank roles. Use `bot rank` to view progress.")
 
 
+def contains_discord_server_invite(text):
+    """Recognize Discord server invitation URLs, not OAuth application URLs."""
+    return bool(re.search(
+        r"https?://(?:www\\.)?(?:discord\\.gg/|discord(?:app)?\\.com/invite/)[A-Za-z0-9-]+",
+        text, flags=re.IGNORECASE,
+    ))
+
+
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -1283,6 +1291,12 @@ async def on_message(message):
 
         user_text = message.content.strip()
         if not user_text:
+            return
+
+        if contains_discord_server_invite(user_text):
+            await message.channel.send(
+                f"Want to add SideBot to your server? Use my official invite link:\\n{INVITE_URL}"
+            )
             return
 
         # Stage 0 — commands in DMs: invite shows the link; everything else is server-only
