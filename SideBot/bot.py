@@ -2050,13 +2050,71 @@ def draw_rank_card(display_name, avatar_bytes, xp, placement, message_count=0, j
     d.text((967, 51), f"#{placement}", fill=white, font=font(32, True), anchor="ra")
 
     def load_rank_badge_asset(rank_number, size):
+        """Load an exact asset when present; otherwise draw the 509-style badge."""
         path = os.path.join(RANK_BADGE_ASSET_DIR, f"rank_{rank_number}.png")
         try:
             badge = Image.open(path).convert("RGBA")
             badge.thumbnail((size, size), Image.Resampling.LANCZOS)
             return badge
         except (OSError, ValueError):
-            return None
+            pass
+
+        palette = [
+            ((207, 111, 59), (248, 53, 48)),
+            ((210, 229, 255), (18, 116, 255)),
+            ((158, 214, 255), (10, 128, 255)),
+            ((222, 235, 255), (33, 120, 255)),
+            ((190, 85, 255), (255, 46, 150)),
+            ((255, 191, 76), (255, 87, 33)),
+            ((126, 213, 255), (31, 111, 255)),
+            ((255, 189, 71), (255, 43, 47)),
+        ]
+        primary, secondary = palette[rank_number - 1]
+        S = 180
+        badge = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+        glow_layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+        gd2 = ImageDraw.Draw(glow_layer)
+        gd2.ellipse((21, 31, 159, 169), fill=primary + (75,))
+        gd2.ellipse((52, 50, 174, 157), fill=secondary + (55,))
+        glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(20))
+        badge = Image.alpha_composite(badge, glow_layer)
+        bd = ImageDraw.Draw(badge)
+
+        # Crown silhouette.
+        crown = [(49, 48), (59, 31), (73, 43), (89, 20), (102, 43),
+                 (119, 31), (129, 48), (118, 57), (60, 57)]
+        bd.polygon(crown, fill=(246, 250, 255, 255))
+        bd.line(crown + [crown[0]], fill=primary + (255,), width=4, joint="curve")
+        for cx, cy in ((59,31),(89,20),(119,31)):
+            bd.ellipse((cx-4, cy-4, cx+4, cy+4), fill=secondary + (255,))
+
+        # Multi-layer metallic shield.
+        outer = [(90, 48), (145, 69), (139, 132), (90, 165), (41, 132), (35, 69)]
+        middle = [(90, 57), (135, 75), (130, 124), (90, 151), (50, 124), (45, 75)]
+        inner = [(90, 67), (124, 81), (120, 116), (90, 138), (60, 116), (56, 81)]
+        bd.polygon(outer, fill=(5, 10, 25, 255))
+        bd.line(outer + [outer[0]], fill=secondary + (255,), width=8, joint="curve")
+        bd.line([(38, 72), (90, 51), (142, 72)], fill=primary + (255,), width=5)
+        bd.polygon(middle, fill=(24, 31, 52, 255))
+        bd.line(middle + [middle[0]], fill=primary + (255,), width=6, joint="curve")
+        bd.polygon(inner, fill=(12, 16, 29, 255))
+        bd.line(inner + [inner[0]], fill=(230, 239, 255, 255), width=4, joint="curve")
+
+        # Blue-left / red-right 509 accent shards.
+        bd.polygon([(35, 78), (55, 69), (51, 119), (38, 129)], fill=(10, 105, 255, 230))
+        bd.polygon([(145, 78), (125, 69), (129, 119), (142, 129)], fill=(255, 35, 54, 230))
+
+        # Rank number with dark stroke for the game-badge look.
+        num_font = font(61, True)
+        text_value = str(rank_number)
+        tb = bd.textbbox((0, 0), text_value, font=num_font, stroke_width=3)
+        tw, th = tb[2]-tb[0], tb[3]-tb[1]
+        bd.text((90 - tw/2, 96 - th/2), text_value, font=num_font,
+                fill=(245, 248, 255, 255), stroke_width=5,
+                stroke_fill=(0, 0, 0, 255))
+
+        badge.thumbnail((size, size), Image.Resampling.LANCZOS)
+        return badge
 
     # Large badge = actual XP rank.
     current_badge = load_rank_badge_asset(number, 132)
