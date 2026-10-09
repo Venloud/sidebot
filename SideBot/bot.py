@@ -1261,6 +1261,12 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    if message.content.strip().casefold() in (
+        "bot kreyol pale", "sidebot kreyol pale", "bobot kreyol pale", "side bot kreyol pale"
+    ):
+        await message.reply("kreyol konprann")
+        return
+
     if message.guild:
         await grant_message_xp(message)
         if message.channel.name.lower() in SOCIAL_CHANNEL_NAMES:
