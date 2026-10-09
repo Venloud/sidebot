@@ -1330,8 +1330,10 @@ async def on_message(message):
 
     content = message.content.lower()
     # Normalize the aliases for older inline commands and help triggers.
-    if content.startswith(("bobot ", "sidebot ", "side bot ")):
-        content = "bot " + content.split(" ", 1)[1]
+    for alias in ("side bot ", "sidebot ", "bobot "):
+        if content.startswith(alias):
+            content = "bot " + content[len(alias):]
+            break
 
     if (
     content.startswith("bot saw util") or
