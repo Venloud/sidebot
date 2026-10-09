@@ -857,6 +857,9 @@ async def on_ready():
         free_games_watch.start()
     for guild in bot.guilds:
         await ensure_rank_roles(guild)
+        badge_roles = existing_rank_badge_roles(guild)
+        if badge_roles:
+            await sync_all_rank_badge_roles(guild, badge_roles)
         await ensure_welcome_guide(guild)
         await cleanup_stale_vault_roles(guild)
 
