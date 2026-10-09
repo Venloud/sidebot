@@ -2885,12 +2885,19 @@ async def links_slash(interaction: nextcord.Interaction):
     )
     await interaction.response.send_message("🇭🇹 **THE 509 — USEFUL LINKS**\n" + status, ephemeral=True)
 
+def _resource_slash_factory(category):
+    async def slash_resource(interaction: nextcord.Interaction):
+        await interaction.response.send_message(resource_reply(category), ephemeral=True)
+    slash_resource.__name__ = f"slash_resource_{category}"
+    return slash_resource
+
 def _register_resource_slash_commands():
     for category in RESOURCE_CATEGORIES:
-        async def slash_resource(interaction: nextcord.Interaction, _category=category):
-            await interaction.response.send_message(resource_reply(_category), ephemeral=True)
-        slash_resource.__name__ = f"slash_resource_{category}"
-        bot.slash_command(name=category, description=f"Show The 509 {category} resource")(slash_resource)
+        handler = _resource_slash_factory(category)
+        bot.slash_command(
+            name=category,
+            description=f"Show The 509 {category} resource",
+        )(handler)
 
 _register_resource_slash_commands()
 
