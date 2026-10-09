@@ -66,3 +66,16 @@ SideBot moderation is permission-gated and respects Discord's role hierarchy. Av
 - `bot unban USER_ID` unbans a user by Discord numeric ID.
 
 Moderation commands will not act on the server owner, administrators, members at or above the bot's highest role, or equal/higher-ranked members relative to a non-owner moderator. Assign the bot Manage Roles, Manage Channels, Kick Members, and Ban Members only when those features are needed. Avoid Administrator permission. Audit results in Discord's audit log. 
+
+
+## Grouped create commands
+
+Use `bot create` to see its available subcommands, also works with `sidebot create` and `bobot create`. Examples:
+
+- `bot create channel gaming-talk` creates a public text channel (Manage Channels).
+- `bot create thread Match Discussion` creates a public thread in the current text channel (Create Public Threads).
+- `bot create role VIP` creates a role with no server-wide permissions (Manage Roles).
+- `bot create poll Messi | Ronaldo | X` posts a reaction poll with 2 to 9 choices (Manage Messages).
+- `bot create event Game Night | 2026-10-20 19:00 | 60 | #voice-channel` schedules a voice event at 19:00 UTC lasting 60 minutes (Manage Events). Mention an existing voice or stage channel.
+
+The bot also needs the corresponding channel, role, thread, event, message, and reaction permissions. Existing `bot create_role` and `bot create_poll` commands remain available for compatibility. Restart the bot to apply the update.
