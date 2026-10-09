@@ -36,7 +36,7 @@ Create a text channel named `notifications`, `notification`, or `live-notificati
 
 ## XP ranks and commands
 
-SideBot awards 10 XP for an eligible server message, at most once per member each 60 seconds. Commands, bots, and very short messages do not earn points. Rank roles are automatically created on bot startup if SideBot has Manage Roles permission: Rank | Rookie (0), Bronze (100), Silver (350), Gold (800), Platinum (1600), Diamond (3000), Master (5500), Legend (10000). The bot changes only SideBot rank roles on promotions.
+SideBot awards 10 XP for an eligible server message, at most once per member each 60 seconds. Commands, bots, and very short messages do not earn points. Rank roles are automatically created on bot startup if SideBot has Manage Roles permission: Rank | NPC (0), Random (100), Side Character (350), Regular (800), Main Character (1600), Certified (3000), GOAT (5500), Himothy (10000). The bot changes only SideBot rank roles on promotions.
 
 Use `bot rank`, `bot rank @member`, `bot leaderboard`, `bot ranks`, or `bot setupranks` (Manage Roles permission). Prefix aliases `bobot` and `sidebot` work for command invocations as well as `bot` and `side bot`, for example `bobot rank` or `sidebot leaderboard`.
 
