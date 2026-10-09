@@ -22,6 +22,7 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
+      - run: python -m py_compile SideBot/bot.py
       - run: pip install -r requirements.txt
       - name: Restore bot state
         uses: actions/cache/restore@v4
@@ -33,6 +34,7 @@ jobs:
       - name: Start SideBot
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          WELCOME_ROLE_NAME: ${{ vars.WELCOME_ROLE_NAME }}
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
