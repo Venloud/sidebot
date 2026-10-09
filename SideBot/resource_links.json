@@ -1,0 +1,30 @@
+{
+  "anime": {
+    "url": "",
+    "description": "Anime resources (admin must configure)"
+  },
+  "movies": {
+    "url": "https://fmhy.net/video#stream-aggregators",
+    "description": "Movie and TV streaming resource directories"
+  },
+  "football": {
+    "url": "https://fmhy.net/video#live-sports",
+    "description": "Football and live sports resources"
+  },
+  "manga": {
+    "url": "",
+    "description": "Manga and comics resources (admin must configure)"
+  },
+  "music": {
+    "url": "",
+    "description": "Music resources (admin must configure)"
+  },
+  "clips": {
+    "url": "",
+    "description": "Clip resources (admin must configure)"
+  },
+  "games": {
+    "url": "",
+    "description": "Gaming resources (admin must configure)"
+  }
+}
