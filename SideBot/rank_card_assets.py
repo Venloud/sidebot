@@ -81,3 +81,32 @@ def render_asset_rank_card(display_name, avatar_bytes, xp, placement,
     canvas.convert("RGB").resize((1086, 362), Image.Resampling.LANCZOS).save(output,format="PNG")
     output.seek(0)
     return output
+
+
+def rank_badge_icon_bytes(rank_number, size=64):
+    """Return the owner-supplied 509 rank badge as a Discord role-icon PNG."""
+    from PIL import Image, ImageOps
+    try:
+        rank_number = int(rank_number)
+    except (TypeError, ValueError):
+        return None
+    if not 1 <= rank_number <= 8:
+        return None
+    badge_files = sorted((ASSETS / "badges").glob(f"rank_{rank_number:02d}_*.png"))
+    if not badge_files:
+        return None
+    try:
+        badge = Image.open(badge_files[0]).convert("RGBA")
+        # Discord role icons are 64x64 and must stay under 256 KB.
+        badge = ImageOps.contain(badge, (size, size), method=Image.Resampling.LANCZOS)
+        canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        canvas.alpha_composite(
+            badge,
+            ((size - badge.width) // 2, (size - badge.height) // 2),
+        )
+        output = BytesIO()
+        canvas.save(output, format="PNG", optimize=True)
+        payload = output.getvalue()
+        return payload if len(payload) <= 256 * 1024 else None
+    except (OSError, ValueError):
+        return None
