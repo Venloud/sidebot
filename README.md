@@ -101,3 +101,8 @@ Members with **Manage Roles** permission can create roles and specify a safe sub
 ## Welcome channel automation
 
 On startup, SideBot posts and pins one server guide in `#welcome` containing the 509 channel directory, rules, rank names, bot commands and day-one access information. It checks for an existing guide to avoid reposting on most restarts. Every six hours it deletes up to 250 unpinned messages older than three days from `#welcome` only, preserving other pinned posts and the bot's guide. Requires View Channel, Read Message History, Send Messages, and Manage Messages in `#welcome`. The normal new-member welcome post and onboarding DM still run.
+
+
+## Clearing messages and rank-role monitoring
+
+`bot clear 20` or `bot clean 20` deletes up to 20 recent unpinned messages in the invoking channel. Both require Manage Messages for the caller and SideBot; the bot reports the actual number removed. Allowed range is 1 to 100, default 50. SideBot also checks saved XP scores every 15 minutes and repairs members' earned ranking roles (NPC through Himothy) when missing or inconsistent; it does not automatically modify unrelated roles. Requires Manage Roles and appropriate role hierarchy.
