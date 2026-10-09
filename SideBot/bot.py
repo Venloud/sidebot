@@ -144,7 +144,7 @@ def is_invite_response(raw: str) -> bool:
 
 # ── Command-detection helper ───────────────────────────────────
 _REGISTERED_COMMANDS = {
-    "whoslive", "clean", "clear", "dayone", "create", "create_role", "assign_role",
+    "whoslive", "clean", "clear", "links", "anime", "movies", "football", "manga", "music", "clips", "games", "dayone", "create", "create_role", "assign_role",
     "create_poll", "assign_poll_role", "invite", "send", "wipe",
     "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks",
 }
@@ -1365,11 +1365,109 @@ async def grant_message_xp(message):
         add_event(f"Rank up: {message.author.display_name} -> {rank_for_xp(updated)[0]}")
 
 
+
+# Configurable resource directory. Only owner-provided URLs are returned.
+RESOURCE_LINKS_FILE = os.path.join(os.path.dirname(__file__), "resource_links.json")
+RESOURCE_CATEGORIES = ("anime", "movies", "football", "manga", "music", "clips", "games")
+
+def load_resource_links():
+    try:
+        with open(RESOURCE_LINKS_FILE, encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError) as exc:
+        print(f"[resources] load failed: {exc}")
+        return {}
+
+resource_links = load_resource_links()
+
+def save_resource_links():
+    temporary = RESOURCE_LINKS_FILE + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(resource_links, handle, indent=2, ensure_ascii=False)
+    os.replace(temporary, RESOURCE_LINKS_FILE)
+
+def resource_url_valid(url):
+    from urllib.parse import urlsplit
+    try:
+        result = urlsplit(url)
+        return result.scheme == "https" and bool(result.netloc) and not result.username and not result.password
+    except ValueError:
+        return False
+
+def resource_reply(category):
+    item = resource_links.get(category, {})
+    if not isinstance(item, dict):
+        item = {}
+    url = str(item.get("url", ""))
+    if not resource_url_valid(url):
+        return f"No {category} resource configured yet. Ask a moderator."
+    description = str(item.get("description", ""))[:160]
+    return (f"🇭🇹 **THE 509 — {category.upper()}**\n"
+            f"{description}\n{url}\n"
+            "⚠️ Only use trustworthy and lawful sources.")
+
+@bot.group(name="links", invoke_without_command=True)
+async def links_command(ctx):
+    status = "\n".join(
+        f"• {key}: {'available' if resource_url_valid(resource_links.get(key, {}).get('url', '')) else 'not configured'}"
+        for key in RESOURCE_CATEGORIES
+    )
+    await ctx.send(
+        "🇭🇹 **THE 509 — USEFUL LINKS**\n" + status +
+        "\nTry bot anime, bot movies, bot football, etc.\n" +
+        "Moderators: bot links set anime https://example.com",
+        allowed_mentions=nextcord.AllowedMentions.none())
+
+@links_command.command(name="set")
+@commands.has_permissions(manage_guild=True)
+async def links_set(ctx, category: str, url: str):
+    category = category.casefold()
+    if category not in RESOURCE_CATEGORIES or len(url) > 1200 or not resource_url_valid(url):
+        await ctx.send("Use a valid category and HTTPS URL. See bot links.")
+        return
+    resource_links.setdefault(category, {})["url"] = url
+    try:
+        save_resource_links()
+    except OSError as exc:
+        await ctx.send(f"Could not save the URL: {exc}")
+        return
+    await ctx.send(f"Updated {category} resource.", allowed_mentions=nextcord.AllowedMentions.none())
+
+@links_command.command(name="remove")
+@commands.has_permissions(manage_guild=True)
+async def links_remove(ctx, category: str):
+    category = category.casefold()
+    if category not in RESOURCE_CATEGORIES:
+        await ctx.send("Unknown resource category.")
+        return
+    resource_links.setdefault(category, {})["url"] = ""
+    save_resource_links()
+    await ctx.send(f"Removed {category} link.")
+
+def register_resource_commands():
+    for category in RESOURCE_CATEGORIES:
+        async def resource_command(ctx, _category=category):
+            await ctx.send(resource_reply(_category),
+                           allowed_mentions=nextcord.AllowedMentions.none())
+        resource_command.__name__ = f"resource_{category}_command"
+        bot.command(name=category)(resource_command)
+
+register_resource_commands()
+
 @bot.command(name="list")
 async def list_commands(ctx):
     """Show all registered SideBot commands and supported chat triggers."""
     descriptions = {
         "rank": "View your XP and rank, optionally mention a member",
+        "links": "Resource directory; moderators can set or remove URLs",
+        "anime": "Anime website",
+        "movies": "Movies and TV website",
+        "football": "Football and live sports website",
+        "manga": "Manga website",
+        "music": "Music website",
+        "clips": "Clips website",
+        "games": "Games website",
         "leaderboard": "Top 10 members by XP (alias: top)",
         "ranks": "View all rank thresholds",
         "setupranks": "Create rank roles (Manage Roles required)",
