@@ -165,7 +165,7 @@ def is_invite_response(raw: str) -> bool:
 _REGISTERED_COMMANDS = {
     "whoslive", "clean", "clear", "silent", "custom", "links", "anime", "movies", "football", "manga", "music", "clips", "games", "dayone", "create", "create_role", "assign_role",
     "create_poll", "assign_poll_role", "invite", "send", "wipe",
-    "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks", "badges", "badge", "equipbadge", "equiprankbadge", "vault",
+    "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks", "rankicons", "badges", "badge", "equipbadge", "equiprankbadge", "vault",
 }
 _INLINE_COMMANDS = {"kiye la"}  # handled inline in on_message, not via @bot.command
 
@@ -1475,6 +1475,7 @@ XP_RANKS = (
 OLD_RANK_NAMES = ("Rookie", "Bronze", "Silver", "Gold", "Platinum", "Diamond", "Master", "Legend")
 XP_COOLDOWN_SECONDS = 60
 XP_PER_MESSAGE = 10
+RANK_BADGE_ROLE_PREFIX = "Badge | "
 xp_mutex = threading.Lock()
 xp_last_award = {}
 
@@ -1533,6 +1534,113 @@ async def ensure_rank_roles(guild):
     return roles
 
 
+def guild_supports_role_icons(guild):
+    """Discord currently exposes uploaded role icons to Level 2 boosted servers."""
+    features = {str(feature).upper() for feature in getattr(guild, "features", ())}
+    return getattr(guild, "premium_tier", 0) >= 2 or "ROLE_ICONS" in features
+
+
+def existing_rank_badge_roles(guild):
+    roles = {}
+    for number, (name, _, _) in enumerate(XP_RANKS, 1):
+        role = nextcord.utils.get(guild.roles, name=f"{RANK_BADGE_ROLE_PREFIX}{name}")
+        if role:
+            roles[number] = role
+    return roles
+
+
+async def ensure_rank_badge_roles(guild, refresh_icons=False):
+    """Create decorative role-icon roles backed by the exact 509 badge PNGs."""
+    if not guild_supports_role_icons(guild):
+        return {}, "Role icons require Discord Server Boost Level 2."
+    if not guild.me or not guild.me.guild_permissions.manage_roles:
+        return {}, "SideBot needs Manage Roles."
+
+    try:
+        from rank_card_assets import rank_badge_icon_bytes
+    except ImportError:
+        return {}, "The 509 rank badge asset module is missing."
+
+    roles = {}
+    failures = []
+    for number, (name, _, _) in enumerate(XP_RANKS, 1):
+        role_name = f"{RANK_BADGE_ROLE_PREFIX}{name}"
+        role = nextcord.utils.get(guild.roles, name=role_name)
+        icon_bytes = rank_badge_icon_bytes(number, 64)
+        if icon_bytes is None:
+            failures.append(f"{number} {name}: badge PNG missing")
+            continue
+        try:
+            if role is None:
+                role = await guild.create_role(
+                    name=role_name,
+                    permissions=nextcord.Permissions.none(),
+                    colour=nextcord.Colour.default(),
+                    hoist=False,
+                    mentionable=False,
+                    icon=icon_bytes,
+                    reason="SideBot equippable 509 rank badge",
+                )
+            elif refresh_icons or role.icon is None:
+                role = await role.edit(
+                    icon=icon_bytes,
+                    reason="Refresh SideBot 509 rank badge icon",
+                )
+        except nextcord.Forbidden:
+            failures.append(f"{number} {name}: role is above SideBot or permission denied")
+            continue
+        except nextcord.HTTPException as exc:
+            failures.append(f"{number} {name}: Discord rejected icon ({exc})")
+            continue
+        if role:
+            roles[number] = role
+    return roles, "; ".join(failures) if failures else None
+
+
+async def sync_member_rank_badge_role(member, xp=None, roles=None):
+    """Apply exactly one decorative badge role matching the member's equipped badge."""
+    if member.bot or not guild_supports_role_icons(member.guild):
+        return False
+    if xp is None:
+        xp = max(0, int(xp_scores.get(str(member.guild.id), {}).get(str(member.id), 0)))
+    roles = roles or existing_rank_badge_roles(member.guild)
+    if not roles:
+        return False
+
+    selected = equipped_rank_number(member.guild.id, member.id, xp)
+    chosen = roles.get(selected)
+    if not chosen or not member.guild.me or chosen >= member.guild.me.top_role:
+        return False
+
+    current = [role for role in member.roles if role in set(roles.values())]
+    remove = [
+        role for role in current
+        if role != chosen and role < member.guild.me.top_role
+    ]
+    try:
+        if remove:
+            await member.remove_roles(*remove, reason="SideBot equipped rank badge changed")
+        if chosen not in member.roles:
+            await member.add_roles(chosen, reason="SideBot equipped 509 rank badge")
+        return True
+    except nextcord.DiscordException as exc:
+        print(f"Could not sync badge role for {member.id}: {exc}")
+        return False
+
+
+async def sync_all_rank_badge_roles(guild, roles=None):
+    roles = roles or existing_rank_badge_roles(guild)
+    synced = 0
+    if not roles:
+        return synced
+    for user_id, earned in list(xp_scores.get(str(guild.id), {}).items()):
+        member = guild.get_member(int(user_id))
+        if member and not member.bot:
+            if await sync_member_rank_badge_role(member, max(0, int(earned)), roles):
+                synced += 1
+    return synced
+
+
 async def apply_rank_role(member, xp):
     """Keep the earned rank, remove only SideBot rank roles."""
     roles = await ensure_rank_roles(member.guild)
@@ -1548,6 +1656,10 @@ async def apply_rank_role(member, xp):
             await member.add_roles(chosen, reason="SideBot activity rank")
     except nextcord.DiscordException as exc:
         print(f"Could not update rank for {member.id}: {exc}")
+    # If native Discord rank icons are configured, keep the equipped icon role in sync.
+    badge_roles = existing_rank_badge_roles(member.guild)
+    if badge_roles:
+        await sync_member_rank_badge_role(member, xp, badge_roles)
 
 
 async def grant_message_xp(message):
@@ -1938,6 +2050,7 @@ async def list_commands(ctx):
         "leaderboard": "Top 10 members by XP (alias: top)",
         "ranks": "View all rank thresholds",
         "setupranks": "Create rank roles (Manage Roles required)",
+        "rankicons": "Set up native Discord role icons for equipped 509 badges (Boost Level 2)",
         "badges": "Show unlocked/equipped rank badges and special 509 accolades",
         "equipbadge": "Equip any rank badge you have unlocked",
         "badge": "Manage special 509 achievement badges (Manage Roles required)",
