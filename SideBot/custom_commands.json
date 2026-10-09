@@ -1,0 +1,4 @@
+{
+  "commands": {},
+  "notes": "Guild-scoped custom commands; edit through 509 custom add/remove/list. Passwords and tokens must never be stored here."
+}
