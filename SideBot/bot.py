@@ -146,7 +146,7 @@ def is_invite_response(raw: str) -> bool:
 _REGISTERED_COMMANDS = {
     "whoslive", "clean", "create_role", "assign_role",
     "create_poll", "assign_poll_role", "invite", "send", "wipe",
-    "join", "leave", "rank", "leaderboard", "top", "ranks", "setupranks",
+    "join", "leave", "list", "rank", "leaderboard", "top", "ranks", "setupranks",
 }
 _INLINE_COMMANDS = {"kiye la"}  # handled inline in on_message, not via @bot.command
 
@@ -1152,6 +1152,54 @@ async def grant_message_xp(message):
     if previous == 0 or rank_for_xp(previous)[0] != rank_for_xp(updated)[0]:
         await apply_rank_role(message.author, updated)
         add_event(f"Rank up: {message.author.display_name} -> {rank_for_xp(updated)[0]}")
+
+
+@bot.command(name="list")
+async def list_commands(ctx):
+    """Show all registered SideBot commands and supported chat triggers."""
+    descriptions = {
+        "rank": "View your XP and rank, optionally mention a member",
+        "leaderboard": "Top 10 members by XP (alias: top)",
+        "ranks": "View all rank thresholds",
+        "setupranks": "Create rank roles (Manage Roles required)",
+        "ping": "Check bot latency and monitor status",
+        "clean": "Delete messages (Manage Messages required)",
+        "create_role": "Create a Discord role (Manage Roles required)",
+        "assign_role": "Assign a member role (Administrator required)",
+        "whoslive": "Check monitored Twitch and TikTok accounts",
+        "create_poll": "Post a poll (Manage Roles required)",
+        "assign_poll_role": "Assign role to yes voters (Manage Roles required)",
+        "invite": "Get SideBot's server invite information",
+        "send": "Send a message to a named channel (Manage Messages required)",
+        "join": "Join a voice channel",
+        "leave": "Leave a voice channel",
+        "list": "Show this command list",
+    }
+    lines = ["**SideBot commands**", "Prefixes: `bot`, `sidebot`, `bobot`, `side bot`, `!`"]
+    for command in sorted(bot.commands, key=lambda item: item.name):
+        if command.hidden or command.name == "help":
+            continue
+        lines.append(f"`bot {command.name}`: {descriptions.get(command.name, command.help or 'Bot command')}")
+    lines.extend([
+        "",
+        "**Other triggers**",
+        "`bot kiye la`: Mention online channel members",
+        "`bot saw util` / `bot kisa w itil`: Help in Haitian Creole",
+        "`bot what @member youtube`: Look up a saved social profile",
+        "`bot @member socials`: Show their saved social links",
+        "`@SideBot question` or `sidebot question`: AI conversation",
+        "`bot` / `sidebot` / `bobot`: Wake the bot",
+        "`gg`, `ggs`, `sak pase`: Casual responses",
+    ])
+    # Discord messages must remain below the 2000 character limit.
+    buffer = ""
+    for line in lines:
+        if len(buffer) + len(line) + 1 > 1900:
+            await ctx.send(buffer, allowed_mentions=nextcord.AllowedMentions.none())
+            buffer = ""
+        buffer += line + "\n"
+    if buffer:
+        await ctx.send(buffer, allowed_mentions=nextcord.AllowedMentions.none())
 
 
 @bot.command(name="rank")
