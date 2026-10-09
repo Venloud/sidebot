@@ -2961,14 +2961,45 @@ async def dayone_expiry_check():
 
 @bot.command(name="badges")
 async def badges_command(ctx, member: nextcord.Member = None):
-    """Show a member's SideBot accolades."""
+    """Show a member's rank-badge collection and special accolades."""
     if not ctx.guild:
         return
     member = member or ctx.author
+    xp = max(0, int(xp_scores.get(str(ctx.guild.id), {}).get(str(member.id), 0)))
+    equipped = equipped_rank_number(ctx.guild.id, member.id, xp)
     await ctx.send(
         f"**{nextcord.utils.escape_markdown(member.display_name)} — Badges**\n"
-        + format_badges(ctx.guild.id, member.id),
+        f"**Equipped rank badge:** {equipped} — {rank_badge_name(equipped)}\n"
+        f"**Unlocked rank badges:** {unlocked_rank_badges_text(xp)}\n"
+        f"**Special:** {format_badges(ctx.guild.id, member.id)}\n"
+        "Use 509 equipbadge NUMBER to equip any rank badge you have unlocked.",
         allowed_mentions=nextcord.AllowedMentions.none(),
+    )
+
+@bot.command(name="equipbadge", aliases=["equiprankbadge"])
+async def equip_rank_badge_command(ctx, number: int = None):
+    """Equip any rank badge the member has already unlocked."""
+    if not ctx.guild:
+        return
+    xp = max(0, int(xp_scores.get(str(ctx.guild.id), {}).get(str(ctx.author.id), 0)))
+    current = equipped_rank_number(ctx.guild.id, ctx.author.id, xp)
+    if number is None:
+        await ctx.send(
+            f"Currently equipped: **{current} — {rank_badge_name(current)}**\n"
+            f"Unlocked: {unlocked_rank_badges_text(xp)}\n"
+            "Usage: 509 equipbadge NUMBER"
+        )
+        return
+    ok, earned = set_equipped_rank_number(ctx.guild.id, ctx.author.id, number, xp)
+    if not ok:
+        await ctx.send(
+            f"🔒 Badge {number} is not unlocked yet. Your highest unlocked badge is "
+            f"**{earned} — {rank_badge_name(earned)}**."
+        )
+        return
+    await ctx.send(
+        f"✅ Equipped rank badge **{number} — {rank_badge_name(number)}**. "
+        "It will appear next to your name on your SideBot profile/rank card."
     )
 
 @bot.group(name="badge", invoke_without_command=True)
