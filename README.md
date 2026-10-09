@@ -122,3 +122,8 @@ The Dyno website-command replacement is available via `bot links`, `bot anime`, 
 Edit links without a code commit by using `bot links set CATEGORY HTTPS_URL`; remove them with `bot links remove CATEGORY`. Only members with Manage Server permission can edit links. URLs must use HTTPS. Links are saved in `SideBot/resource_links.json` and carried through the GitHub Actions state cache during normal workflow handoffs.
 
 Default configured entries: `movies` points to FMHY video streaming aggregators; `football` points to FMHY live sports. The categories `anime`, `manga`, `music`, `clips`, and `games` deliberately have no URL until the server owner specifies approved resources. SideBot does not auto-search or invent sources. Existing links and the command changes require live verification after the bot reloads. Slash-command registration has not yet been implemented.
+
+
+## 509 prefix and quiet commands
+
+Use `509` as a full command prefix, for example `509 rank`, `509 links`, or `509 create poll Messi | Ronaldo | X`. Existing prefixes remain in place. SideBot tries to delete recognized command invocation messages immediately after execution starts, where it has Manage Messages permission. Users can turn on short-lived replies using `509 silent on`, and turn them off with `509 silent off`. Standard responses sent through `ctx.send` are removed after 10 seconds when silent mode is on. This is **not private or ephemeral** and some commands send directly to channels or produce files, so their messages may remain. Silent preferences reset when the bot restarts. 
