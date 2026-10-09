@@ -185,3 +185,7 @@ SideBot can decorate its own profile/rank card, but a Discord bot cannot add an 
 If PNG assets named `SideBot/assets/rank_badges/rank_1.png` through `rank_8.png` are present, SideBot uses them. Otherwise it renders a built-in 509-style metallic/neon badge, so the rank system remains functional without external image files.
 
 Equipped selections are persisted in `SideBot/equipped_rank_badges.json`.
+
+## Command output channel routing
+
+Prefix commands can be invoked from any text channel. SideBot attempts to delete the invoking message (requires Manage Messages), then sends the result to the designated channel. `509 create poll cold shower,hott shower` or `bot create poll cold shower | hott shower` posts a poll with numbered reactions to `#polls`. `509 rank`, `bot rank`, `509 leaderboard`, `509 top`, and `509 ranks` send output to `#leaderboard`. Destination channels must exist and allow SideBot to view/post messages; failures are not silently redirected to the wrong channel. This behavior applies to **prefix text commands**; slash command routing is separate. Normal posts in `#polls` / `#leaderboard` should not be erased by the silent-mode response timer. Additional commands can be assigned destinations later.
