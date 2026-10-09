@@ -637,10 +637,13 @@ async def on_ready():
     add_event(f"Bot online as {bot.user.name}")
     if not check_live_status.is_running():
         check_live_status.start()
+    for guild in bot.guilds:
+        await ensure_rank_roles(guild)
 
 @bot.event
 async def on_guild_join(guild):
     """Send a simple welcome message when the bot joins a new server."""
+    await ensure_rank_roles(guild)
     # Try #general first, then the first text channel we can send to
     target = (
         nextcord.utils.get(guild.text_channels, name="general")
@@ -1146,7 +1149,7 @@ async def grant_message_xp(message):
     updated = previous + XP_PER_MESSAGE
     guild_data[user_key] = updated
     save_xp_scores()
-    if rank_for_xp(previous)[0] != rank_for_xp(updated)[0]:
+    if previous == 0 or rank_for_xp(previous)[0] != rank_for_xp(updated)[0]:
         await apply_rank_role(message.author, updated)
         add_event(f"Rank up: {message.author.display_name} -> {rank_for_xp(updated)[0]}")
 
