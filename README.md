@@ -114,3 +114,11 @@ The branded dashboard lives in `dashboard/index.html`, themed with green, black,
 ## Free game announcements
 
 SideBot checks the GamerPower API every two hours for active full-game giveaways and posts newly identified items to `#free-games`, with an attribution link to GamerPower.com. The first pass records active offers but does not post them, to avoid flooding the channel when first enabled. Already-announced IDs are stored in `SideBot/free_games_seen.json` and persisted with the GitHub Actions state cache. The source is a third-party tracker; announcements should be checked for conditions and availability. If the cache disappears or the bot is offline, notices may be missed or repeated. No API key required.
+
+## The 509 configurable resource commands
+
+The Dyno website-command replacement is available via `bot links`, `bot anime`, `bot movies`, `bot football`, `bot manga`, `bot music`, `bot clips`, and `bot games`. The same commands also work with the existing `!` prefix, e.g. `!anime`. The previous standalone `509website` trigger is unchanged.
+
+Edit links without a code commit by using `bot links set CATEGORY HTTPS_URL`; remove them with `bot links remove CATEGORY`. Only members with Manage Server permission can edit links. URLs must use HTTPS. Links are saved in `SideBot/resource_links.json` and carried through the GitHub Actions state cache during normal workflow handoffs.
+
+Default configured entries: `movies` points to FMHY video streaming aggregators; `football` points to FMHY live sports. The categories `anime`, `manga`, `music`, `clips`, and `games` deliberately have no URL until the server owner specifies approved resources. SideBot does not auto-search or invent sources. Existing links and the command changes require live verification after the bot reloads. Slash-command registration has not yet been implemented.
