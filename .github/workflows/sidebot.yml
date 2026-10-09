@@ -46,14 +46,14 @@ jobs:
         run: |
           test -n "$DISCORD_TOKEN" || { echo 'Missing DISCORD_TOKEN secret'; exit 1; }
           mkdir -p .state
-          for file in announced_live.json member_profiles.json tiktok_users.txt twitch_users.txt social_links.json xp_scores.json dayone_access.json free_games_seen.json resource_links.json; do
+          for file in announced_live.json member_profiles.json tiktok_users.txt twitch_users.txt social_links.json xp_scores.json dayone_access.json free_games_seen.json resource_links.json custom_commands.json; do
             if [ -f ".state/$file" ]; then cp ".state/$file" "SideBot/$file"; fi
           done
           set +e
           python -u scripts/live_runner.py
           status=$?
           set -e
-          for file in announced_live.json member_profiles.json tiktok_users.txt twitch_users.txt social_links.json xp_scores.json dayone_access.json free_games_seen.json resource_links.json; do
+          for file in announced_live.json member_profiles.json tiktok_users.txt twitch_users.txt social_links.json xp_scores.json dayone_access.json free_games_seen.json resource_links.json custom_commands.json; do
             if [ -f "SideBot/$file" ]; then cp "SideBot/$file" ".state/$file"; fi
           done
           if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then exit "$status"; fi
