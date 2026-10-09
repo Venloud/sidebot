@@ -146,7 +146,7 @@ def is_invite_response(raw: str) -> bool:
 _REGISTERED_COMMANDS = {
     "whoslive", "clean", "create_role", "assign_role",
     "create_poll", "assign_poll_role", "invite", "send", "wipe",
-    "join", "leave", "list", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks",
+    "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks",
 }
 _INLINE_COMMANDS = {"kiye la"}  # handled inline in on_message, not via @bot.command
 
@@ -1186,6 +1186,11 @@ async def list_commands(ctx):
         "leave": "Leave a voice channel",
         "list": "Show this command list",
         "roleperms": "Show each role’s server permissions (Administrator only)",
+        "delete_role": "Delete an ordinary role (Manage Roles required)",
+        "create_access_role": "Create access role for a channel: bot create_access_role Name #channel",
+        "kick": "Kick a member, optionally with a reason",
+        "ban": "Ban a member, optionally with a reason",
+        "unban": "Unban by numeric user ID",
     }
     lines = ["**SideBot commands**", "Prefixes: `bot`, `sidebot`, `bobot`, `side bot`, `!`"]
     for command in sorted(bot.commands, key=lambda item: item.name):
@@ -1902,6 +1907,108 @@ async def assign_role(ctx, member: nextcord.Member, *, role_name: str):
         await ctx.send(f"**Mwen bay {member.mention} Wòl '{role.name}' avèk siksè.**")
     except Exception as e:
         await ctx.send(f"**Pa posib bay wòl sa a. Erè: {e}**")
+
+def can_moderate_target(ctx, member):
+    """Protect owner, administrators, equal hierarchy, and the caller."""
+    bot_member = ctx.guild.me
+    if member.id == ctx.guild.owner_id or member.id == ctx.author.id or member.id == bot_member.id:
+        return False
+    if member.guild_permissions.administrator:
+        return False
+    if member.top_role >= bot_member.top_role:
+        return False
+    if ctx.author.id != ctx.guild.owner_id and member.top_role >= ctx.author.top_role:
+        return False
+    return True
+
+
+@bot.command(name="delete_role")
+@commands.has_permissions(manage_roles=True)
+@commands.bot_has_permissions(manage_roles=True)
+async def delete_role_command(ctx, *, role_name: str):
+    role = nextcord.utils.get(ctx.guild.roles, name=role_name)
+    if not role:
+        await ctx.send("Role not found.")
+        return
+    if role.is_default() or role.managed or role.permissions.administrator:
+        await ctx.send("Cannot delete default, integration-managed, or Administrator roles.")
+        return
+    if role >= ctx.guild.me.top_role or (
+        ctx.author.id != ctx.guild.owner_id and role >= ctx.author.top_role
+    ):
+        await ctx.send("Role hierarchy prevents deletion.")
+        return
+    if role.name.startswith("Rank | "):
+        await ctx.send("Rank roles are managed by SideBot. They cannot be deleted here.")
+        return
+    try:
+        await role.delete(reason=f"Deleted by {ctx.author} with SideBot")
+        await ctx.send(f"Deleted role: {nextcord.utils.escape_markdown(role_name)}")
+    except nextcord.DiscordException as exc:
+        await ctx.send(f"Unable to delete role: {exc}")
+
+
+@bot.command(name="create_access_role")
+@commands.has_permissions(manage_roles=True, manage_channels=True)
+@commands.bot_has_permissions(manage_roles=True, manage_channels=True)
+async def create_access_role(ctx, role_name: str, channel: nextcord.TextChannel):
+    """Create a role that grants visibility to an existing private channel."""
+    if nextcord.utils.get(ctx.guild.roles, name=role_name):
+        await ctx.send("A role with that name already exists.")
+        return
+    role = None
+    try:
+        role = await ctx.guild.create_role(
+            name=role_name, permissions=nextcord.Permissions.none(),
+            reason=f"Access role requested by {ctx.author}"
+        )
+        # Grant access without changing other role permissions on this channel.
+        await channel.set_permissions(role, view_channel=True, read_message_history=True,
+                                      reason=f"Access role configured by {ctx.author}")
+        await ctx.send(f"Created **{nextcord.utils.escape_markdown(role_name)}** for {channel.mention}.")
+    except nextcord.DiscordException as exc:
+        await ctx.send(f"Couldn't configure access role: {exc}")
+
+
+@bot.command(name="kick")
+@commands.has_permissions(kick_members=True)
+@commands.bot_has_permissions(kick_members=True)
+async def kick_member_command(ctx, member: nextcord.Member, *, reason: str = "No reason provided"):
+    if not can_moderate_target(ctx, member):
+        await ctx.send("Cannot kick this member due to permissions or role hierarchy.")
+        return
+    try:
+        await member.kick(reason=f"{ctx.author}: {reason[:350]}")
+        await ctx.send(f"Kicked **{nextcord.utils.escape_markdown(str(member))}**. Reason: {reason[:300]}")
+    except nextcord.DiscordException as exc:
+        await ctx.send(f"Kick failed: {exc}")
+
+
+@bot.command(name="ban")
+@commands.has_permissions(ban_members=True)
+@commands.bot_has_permissions(ban_members=True)
+async def ban_member_command(ctx, member: nextcord.Member, *, reason: str = "No reason provided"):
+    if not can_moderate_target(ctx, member):
+        await ctx.send("Cannot ban this member due to permissions or role hierarchy.")
+        return
+    try:
+        await member.ban(reason=f"{ctx.author}: {reason[:350]}", delete_message_days=0)
+        await ctx.send(f"Banned **{nextcord.utils.escape_markdown(str(member))}**. Reason: {reason[:300]}")
+    except nextcord.DiscordException as exc:
+        await ctx.send(f"Ban failed: {exc}")
+
+
+@bot.command(name="unban")
+@commands.has_permissions(ban_members=True)
+@commands.bot_has_permissions(ban_members=True)
+async def unban_member_command(ctx, user_id: int):
+    try:
+        user = await bot.fetch_user(user_id)
+        await ctx.guild.unban(user, reason=f"Unbanned by {ctx.author}")
+        await ctx.send(f"Unbanned user ID `{user_id}`.")
+    except (nextcord.DiscordException, ValueError) as exc:
+        await ctx.send(f"Unban failed: {exc}")
+
 
 @bot.command(name="whoslive")
 async def whoslive(ctx):
