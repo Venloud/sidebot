@@ -1203,7 +1203,7 @@ async def setup_ranks_command(ctx):
 def contains_discord_server_invite(text):
     """Recognize Discord server invitation URLs, not OAuth application URLs."""
     return bool(re.search(
-        r"https?://(?:www\\.)?(?:discord\\.gg/|discord(?:app)?\\.com/invite/)[A-Za-z0-9-]+",
+        r"https?://(?:www\.)?(?:discord\.gg/|discord(?:app)?\.com/invite/)[A-Za-z0-9-]+",
         text, flags=re.IGNORECASE,
     ))
 
@@ -1295,7 +1295,7 @@ async def on_message(message):
 
         if contains_discord_server_invite(user_text):
             await message.channel.send(
-                f"Want to add SideBot to your server? Use my official invite link:\\n{INVITE_URL}"
+                f"Want to add SideBot to your server? Use my official invite link:\n{INVITE_URL}"
             )
             return
 
