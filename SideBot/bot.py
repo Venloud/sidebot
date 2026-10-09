@@ -2142,9 +2142,90 @@ def contains_discord_server_invite(text):
     ))
 
 
+
+# Original 509 resource shortcuts. Keep the supplied copy and remove command
+# triggers; {silent} means no extra Dyno/internal acknowledgment.
+RESOURCE_SHORTCUT_TEXT = {
+    "anime": """🇭🇹 **THE 509 — ANIME**
+🍥 Looking for anime?
+▶️ Watch here:
+https://fmhy.net/video#anime-streaming
+📺 Drop recommendations in #anime-movies
+
+1. Open the **Anime** section on FMHY.
+2. Scroll through the available anime website options.
+3. Choose whichever site you prefer.
+4. Search for the anime you want to watch on that site.
+5. If one option is unavailable, go back and try another listed source.
+
+⚠️ **Stick to legal services available in your region, and avoid suspicious pop-ups, downloads, or requests for personal information.**""",
+    "movie": """🇭🇹 **THE 509 — MOVIES**
+🍥 Looking for movies?
+▶️ Watch here:
+https://fmhy.net/video#stream-aggregators
+📺 Drop recommendations in #anime-movies
+
+1. Open the **Stream Aggregators** section.
+2. Scroll through the available movie and TV website options.
+3. Choose whichever service you prefer.
+4. Search for the movie or show you want.
+5. If one option is unavailable, go back and try another listed source.
+
+⚠️ **Use legal services available in your region, and avoid suspicious pop-ups, downloads, or requests for personal information.**""",
+    "football": """🇭🇹 **THE 509 — FOOTBALL**
+⚽ Game day?
+▶️ Watch here:
+https://fmhy.net/video#live-sports
+🗣️ Talk about the match in #Lakay
+
+1. Open the **Live Sports** page.
+2. Scroll through the available website options.
+3. Choose whichever service or link you prefer.
+4. If one option does not work, go back and try another listed option.
+5. Use the search feature on the site if you're looking for a specific sport or event.
+
+⚠️ **Only use services that are legal in your location, and be careful with unfamiliar ads, pop-ups, downloads, or requests for personal information.**""",
+    "website": """🌐 **How to Use FMHY**
+
+1. Go to **fmhy.net**
+2. Use the 🔎 **Search** button at the top if you already know what you're looking for.
+3. Otherwise, scroll through the categories:
+   - 🎬 **Streaming** — movies, shows and other video resources
+   - 🍥 **Anime** — search “anime” to find anime-related resources
+   - ⚽ **Sports** — search “sports” or the sport you're looking for
+   - 🎮 **Gaming** — gaming-related resources
+   - 📚 **Reading** — manga, comics, books and more
+4. Open the section you want and choose one of the listed resources.
+5. If you're confused, open the **Beginners Guide** on the homepage.
+
+⚠️ **Use trusted/legal sources and be careful with unfamiliar links, pop-ups, downloads, and ads.**""",
+}
+
+async def handle_509_resource_shortcut(message):
+    if not message.guild:
+        return False
+    match = re.fullmatch(r"509\s*(anime|movie|movies|website|football)", message.content.strip(), flags=re.I)
+    if not match:
+        return False
+    category = match.group(1).casefold()
+    if category == "movies":
+        category = "movie"
+    try:
+        await message.delete()
+    except nextcord.DiscordException:
+        pass
+    await message.channel.send(
+        RESOURCE_SHORTCUT_TEXT[category],
+        allowed_mentions=nextcord.AllowedMentions.none(),
+    )
+    return True
+
 @bot.event
 async def on_message(message):
     if message.author.bot:
+        return
+
+    if await handle_509_resource_shortcut(message):
         return
 
     if message.guild and await handle_custom_trigger(message):
