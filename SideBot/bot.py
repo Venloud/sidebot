@@ -1275,6 +1275,8 @@ def social_query(message):
 # ── Message counts, accolades and one-time Vault access ───────────────
 MESSAGE_COUNTS_FILE = os.path.join(os.path.dirname(__file__), "message_counts.json")
 BADGES_FILE = os.path.join(os.path.dirname(__file__), "badges.json")
+EQUIPPED_RANK_BADGES_FILE = os.path.join(os.path.dirname(__file__), "equipped_rank_badges.json")
+RANK_BADGE_ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets", "rank_badges")
 VAULT_FILE = os.path.join(os.path.dirname(__file__), "vault_access.json")
 VAULT_ROLE_NAME = "Secret Access"
 VAULT_JOIN_TIMEOUT_SECONDS = 300
@@ -1306,6 +1308,7 @@ def _atomic_json_save(path, value):
 
 message_counts = _load_json_dict(MESSAGE_COUNTS_FILE)
 badge_data = _load_json_dict(BADGES_FILE)
+equipped_rank_badges = _load_json_dict(EQUIPPED_RANK_BADGES_FILE)
 vault_data = _load_json_dict(VAULT_FILE)
 vault_pending = {}  # (guild_id, user_id) -> {"joined": bool, "task": asyncio.Task}
 
@@ -1314,6 +1317,9 @@ def save_message_counts():
 
 def save_badges():
     _atomic_json_save(BADGES_FILE, badge_data)
+
+def save_equipped_rank_badges():
+    _atomic_json_save(EQUIPPED_RANK_BADGES_FILE, equipped_rank_badges)
 
 def save_vault():
     _atomic_json_save(VAULT_FILE, vault_data)
@@ -1341,6 +1347,44 @@ def badges_for(guild_id, user_id):
 
 def format_badges(guild_id, user_id):
     return " • ".join(f"{emoji} {name}" for emoji, name in badges_for(guild_id, user_id))
+
+def earned_rank_number(xp):
+    """Return the highest rank badge number earned by XP (1..8)."""
+    earned = 1
+    for index, (_, threshold, _) in enumerate(XP_RANKS, 1):
+        if xp >= threshold:
+            earned = index
+    return earned
+
+def rank_badge_name(number):
+    if 1 <= int(number) <= len(XP_RANKS):
+        return XP_RANKS[int(number) - 1][0]
+    return "Unknown"
+
+def equipped_rank_number(guild_id, user_id, xp):
+    """Return a valid equipped rank badge, falling back to current rank."""
+    earned = earned_rank_number(xp)
+    raw = equipped_rank_badges.get(str(guild_id), {}).get(str(user_id), earned)
+    try:
+        selected = int(raw)
+    except (TypeError, ValueError):
+        selected = earned
+    return selected if 1 <= selected <= earned else earned
+
+def set_equipped_rank_number(guild_id, user_id, number, xp):
+    earned = earned_rank_number(xp)
+    number = int(number)
+    if number < 1 or number > earned:
+        return False, earned
+    equipped_rank_badges.setdefault(str(guild_id), {})[str(user_id)] = number
+    save_equipped_rank_badges()
+    return True, earned
+
+def unlocked_rank_badges_text(xp):
+    earned = earned_rank_number(xp)
+    return " • ".join(
+        f"{index} — {name}" for index, (name, _, _) in enumerate(XP_RANKS[:earned], 1)
+    )
 
 def _vault_digest(secret, salt):
     import hashlib
