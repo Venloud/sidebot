@@ -2023,6 +2023,20 @@ def draw_rank_card(display_name, avatar_bytes, xp, placement, message_count=0, j
     from PIL import Image, ImageDraw, ImageFont, ImageFilter
     import math
 
+    # Prefer the modular rank artwork when PNG assets are installed; retain
+    # the legacy renderer as a safe fallback on Actions runners without assets.
+    try:
+        from rank_card_assets import render_asset_rank_card
+        new_card = render_asset_rank_card(
+            display_name, avatar_bytes, xp, placement, message_count, joined_label,
+            equipped_rank_number=equipped_rank_number,
+            ranks=XP_RANKS,
+        )
+        if new_card is not None:
+            return new_card
+    except (ImportError, OSError, ValueError, TypeError) as exc:
+        print(f"[rank-assets] fallback to legacy renderer: {exc}")
+
     W, H = 1050, 350
     img = Image.new("RGB", (W, H), (2, 8, 22))
     d = ImageDraw.Draw(img)
