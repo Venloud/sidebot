@@ -1228,46 +1228,154 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-@tasks.loop(minutes=5)
+# Check YouTube less often to conserve its search quota.
+_youtube_last_checked = {}
+
+
+def check_youtube_live(profile_url):
+    """Verify an active YouTube livestream using the official Data API."""
+    from urllib.parse import urlsplit
+    api_key = os.getenv("YOUTUBE_API_KEY")
+    if not api_key:
+        return None
+    try:
+        path = urlsplit(profile_url).path.strip("/")
+        parts = path.split("/")
+        channel_id = None
+        if len(parts) >= 2 and parts[0].lower() == "channel":
+            channel_id = parts[1]
+        elif parts[0].startswith("@"):
+            response = requests.get(
+                "https://www.googleapis.com/youtube/v3/channels",
+                params={"part": "id", "forHandle": parts[0], "key": api_key},
+                timeout=10,
+            )
+            response.raise_for_status()
+            items = response.json().get("items", [])
+            channel_id = items[0]["id"] if items else None
+        if not channel_id:
+            return None
+        response = requests.get(
+            "https://www.googleapis.com/youtube/v3/search",
+            params={
+                "part": "snippet", "channelId": channel_id,
+                "eventType": "live", "type": "video",
+                "maxResults": 1, "key": api_key,
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        items = response.json().get("items", [])
+        video_id = items[0].get("id", {}).get("videoId") if items else None
+        return (bool(video_id), f"https://www.youtube.com/watch?v={video_id}" if video_id else None)
+    except (requests.RequestException, ValueError, KeyError, IndexError) as exc:
+        print(f"YouTube live check failed: {exc}")
+        return None
+
+
+def profile_username(platform, url):
+    from urllib.parse import urlsplit
+    parts = urlsplit(url).path.strip("/").split("/")
+    if not parts:
+        return None
+    if platform == "tiktok":
+        return parts[0].lstrip("@")
+    if platform == "twitch":
+        return parts[0]
+    return None
+
+
+async def notify_live(guild, name, platform, link):
+    channel = next(
+        (c for c in guild.text_channels if c.name.lower() in ("notifications", "notification", "live-notifications")),
+        None,
+    ) or nextcord.utils.get(guild.text_channels, name="live")
+    if not channel:
+        print(f"No notification channel in {guild.name}; skipped {platform} alert")
+        return False
+    try:
+        await channel.send(
+            f"🔴 Hey, **{name}** is live on **{platform.title()}**!\n{link}",
+            allowed_mentions=nextcord.AllowedMentions.none(),
+        )
+        return True
+    except nextcord.DiscordException as exc:
+        print(f"Could not notify {guild.name}: {exc}")
+        return False
+
+
+@tasks.loop(minutes=10)
 async def check_live_status():
     global last_check_time
     print("Running live status check...")
-    access_token = await asyncio.to_thread(get_twitch_access_token) if TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET else None
-    currently_live = set()
+    access_token = (
+        await asyncio.to_thread(get_twitch_access_token)
+        if TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET else None
+    )
+    current = set()
+    checked = set()
+    # Old manually tracked accounts also remain supported in each server.
+    for guild in bot.guilds:
+        targets = []
+        for username in bot.twitch_usernames:
+            targets.append((f"twitch:{username.lower()}", username, "twitch",
+                            f"https://www.twitch.tv/{username}"))
+        for username in bot.tiktok_usernames:
+            targets.append((f"tiktok:{username.lower()}", username, "tiktok",
+                            f"https://www.tiktok.com/@{username}/live"))
+        for user_id, links in social_links.get(str(guild.id), {}).items():
+            member = guild.get_member(int(user_id))
+            name = member.display_name if member else f"User {user_id}"
+            for platform in ("twitch", "tiktok", "youtube"):
+                if links.get(platform):
+                    targets.append((f"{platform}:member:{user_id}", name, platform, links[platform]))
 
-    for username in bot.twitch_usernames:
-        if not access_token:
-            break
-        is_live, link = await asyncio.to_thread(check_twitch_live, username, access_token)
-        if is_live:
-            currently_live.add(username)
-            if username not in announced_live_sessions:
-                announced_live_sessions.add(username)
-                save_announced_sessions()
-                add_event(f"🔴 {username} went live on Twitch")
-                await send_live_notification(f"**{username}** ap fè live sou Twitch! 🔴 {link}")
-
-    for username in bot.tiktok_usernames:
-        is_live, link = await asyncio.to_thread(check_tiktok_live, username)
-        if is_live:
-            currently_live.add(username)
-            if username not in announced_live_sessions:
-                announced_live_sessions.add(username)
-                save_announced_sessions()
-                add_event(f"🔴 {username} went live on TikTok")
-                await send_live_notification(f"**{username}** ap fè live sou TikTok! 🔴 {link}")
-
-    # Remove anyone who went offline so they get announced again next stream
-    went_offline = announced_live_sessions - currently_live
-    if went_offline:
-        announced_live_sessions.difference_update(went_offline)
+        for identity, name, platform, url in targets:
+            key = f"{guild.id}:{identity}"
+            if key in checked:
+                continue
+            checked.add(key)
+            result = None
+            if platform == "youtube":
+                if not os.getenv("YOUTUBE_API_KEY"):
+                    continue
+                from time import monotonic
+                now = monotonic()
+                if now - _youtube_last_checked.get(key, float("-inf")) < 3600:
+                    # Retain the known active state until the next YouTube check.
+                    if key in announced_live_sessions:
+                        current.add(key)
+                    continue
+                _youtube_last_checked[key] = now
+                result = await asyncio.to_thread(check_youtube_live, url)
+            elif platform == "twitch" and access_token:
+                username = profile_username(platform, url)
+                if username:
+                    result = await asyncio.to_thread(check_twitch_live, username, access_token)
+            elif platform == "tiktok":
+                username = profile_username(platform, url)
+                if username:
+                    result = await asyncio.to_thread(check_tiktok_live, username)
+            # Unknown result must not reset a prior live announcement.
+            if result is None:
+                if key in announced_live_sessions:
+                    current.add(key)
+                continue
+            is_live, link = result
+            if is_live:
+                current.add(key)
+                if key not in announced_live_sessions:
+                    if await notify_live(guild, name, platform, link):
+                        announced_live_sessions.add(key)
+                        save_announced_sessions()
+                        add_event(f"{name} live on {platform} in {guild.name}")
+    offline = announced_live_sessions - current
+    if offline:
+        announced_live_sessions.difference_update(offline)
         save_announced_sessions()
-        for u in went_offline:
-            add_event(f"⚫ {u} went offline")
-        print(f"Went offline, removed from announced: {went_offline}")
-
     last_check_time = datetime.now().strftime("%H:%M:%S")
     print("Live status check complete.")
+
 
 def get_twitch_access_token():
     url = "https://id.twitch.tv/oauth2/token"
