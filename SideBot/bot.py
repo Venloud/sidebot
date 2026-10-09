@@ -165,7 +165,7 @@ def is_invite_response(raw: str) -> bool:
 _REGISTERED_COMMANDS = {
     "whoslive", "clean", "clear", "silent", "custom", "links", "anime", "movies", "football", "manga", "music", "clips", "games", "dayone", "create", "create_role", "assign_role",
     "create_poll", "assign_poll_role", "invite", "send", "wipe",
-    "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks", "badges", "badge", "vault",
+    "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks", "badges", "badge", "equipbadge", "equiprankbadge", "vault",
 }
 _INLINE_COMMANDS = {"kiye la"}  # handled inline in on_message, not via @bot.command
 
@@ -1900,7 +1900,8 @@ async def list_commands(ctx):
         "leaderboard": "Top 10 members by XP (alias: top)",
         "ranks": "View all rank thresholds",
         "setupranks": "Create rank roles (Manage Roles required)",
-        "badges": "Show 509 member and achievement badges",
+        "badges": "Show unlocked/equipped rank badges and special 509 accolades",
+        "equipbadge": "Equip any rank badge you have unlocked",
         "badge": "Manage special 509 achievement badges (Manage Roles required)",
         "vault": "Configure one-time secret voice access; members use /vault",
         "ping": "Check bot latency and monitor status",
@@ -3273,7 +3274,7 @@ def _register_resource_slash_commands():
 
 _register_resource_slash_commands()
 
-@bot.slash_command(name="badges", description="Show your 509 badges")
+@bot.slash_command(name="badges", description="Show unlocked and equipped 509 badges")
 async def badges_slash(
     interaction: nextcord.Interaction,
     member: nextcord.Member = nextcord.SlashOption(description="Member to inspect", required=False),
@@ -3282,9 +3283,39 @@ async def badges_slash(
         await interaction.response.send_message("Use this in a server.", ephemeral=True)
         return
     member = member or interaction.user
+    xp = max(0, int(xp_scores.get(str(interaction.guild.id), {}).get(str(member.id), 0)))
+    equipped = equipped_rank_number(interaction.guild.id, member.id, xp)
     await interaction.response.send_message(
         f"**{nextcord.utils.escape_markdown(member.display_name)} — Badges**\n"
-        + format_badges(interaction.guild.id, member.id),
+        f"**Equipped rank badge:** {equipped} — {rank_badge_name(equipped)}\n"
+        f"**Unlocked rank badges:** {unlocked_rank_badges_text(xp)}\n"
+        f"**Special:** {format_badges(interaction.guild.id, member.id)}",
+        ephemeral=True,
+    )
+
+@bot.slash_command(name="equipbadge", description="Equip an unlocked 509 rank badge")
+async def equip_rank_badge_slash(
+    interaction: nextcord.Interaction,
+    badge: int = nextcord.SlashOption(description="Rank badge number from 1 to 8", required=True),
+):
+    if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+        await interaction.response.send_message("Use this in a server.", ephemeral=True)
+        return
+    xp = max(0, int(xp_scores.get(str(interaction.guild.id), {}).get(str(interaction.user.id), 0)))
+    if badge < 1 or badge > 8:
+        await interaction.response.send_message("Choose a badge number from 1 to 8.", ephemeral=True)
+        return
+    ok, earned = set_equipped_rank_number(interaction.guild.id, interaction.user.id, badge, xp)
+    if not ok:
+        await interaction.response.send_message(
+            f"🔒 Badge {badge} is not unlocked yet. Your highest unlocked badge is "
+            f"**{earned} — {rank_badge_name(earned)}**.",
+            ephemeral=True,
+        )
+        return
+    await interaction.response.send_message(
+        f"✅ Equipped **{badge} — {rank_badge_name(badge)}**. "
+        "It now appears next to your name on your SideBot profile/rank card.",
         ephemeral=True,
     )
 
