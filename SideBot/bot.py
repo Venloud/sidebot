@@ -1176,7 +1176,7 @@ async def list_commands(ctx):
         "ping": "Check bot latency and monitor status",
         "clean": "Delete messages (Manage Messages required)",
         "create_role": "Create a Discord role (Manage Roles required)",
-        "create": "Create channel, thread, role, poll, or scheduled event. Use bot create for syntax.",
+        "create": "Create channel, thread, role (with permission flags), poll, or event. Use bot create for syntax.",
         "assign_role": "Assign a member role (Administrator required)",
         "whoslive": "Check monitored Twitch and TikTok accounts",
         "create_poll": "Post a poll (Manage Roles required)",
@@ -1937,29 +1937,58 @@ async def create_thread_sub(ctx, *, name: str):
         await ctx.send(f"Couldn't create thread: {exc}")
 
 
+# Permission flags supported for newly created roles. Dangerous moderation
+# and administration permissions are intentionally excluded.
+CREATABLE_ROLE_PERMISSIONS = {
+    "view_channel", "send_messages", "read_message_history", "embed_links",
+    "attach_files", "add_reactions", "use_external_emojis",
+    "connect", "speak", "stream", "use_voice_activation",
+    "create_public_threads", "send_messages_in_threads",
+}
+
+
 @create_group.command(name="role")
 @commands.has_permissions(manage_roles=True)
 @commands.bot_has_permissions(manage_roles=True)
-async def create_role_sub(ctx, *, name: str):
-    name = name.strip()
+async def create_role_sub(ctx, *, details: str):
+    """bot create role VIP | view_channel, send_messages, connect"""
+    fields = [item.strip() for item in details.split("|")]
+    if len(fields) > 2 or not fields[0]:
+        await ctx.send("Usage: `bot create role VIP | view_channel, send_messages, connect`")
+        return
+    name = fields[0]
     if not 1 <= len(name) <= 90:
         await ctx.send("Role name must be between 1 and 90 characters.")
         return
     if nextcord.utils.get(ctx.guild.roles, name=name):
         await ctx.send("That role already exists.")
         return
+    requested = [value.strip().lower().replace(" ", "_") for value in fields[1].split(",")] if len(fields) == 2 else []
+    if any(not value or value not in CREATABLE_ROLE_PERMISSIONS for value in requested):
+        await ctx.send("Unsupported permission. Allowed: " + ", ".join(sorted(CREATABLE_ROLE_PERMISSIONS)))
+        return
+    permissions = nextcord.Permissions.none()
+    for flag in requested:
+        if not getattr(ctx.author.guild_permissions, flag, False):
+            await ctx.send(f"You do not have permission to grant `{flag}`.")
+            return
+        setattr(permissions, flag, True)
     try:
         role = await ctx.guild.create_role(
-            name=name, permissions=nextcord.Permissions.none(),
+            name=name, permissions=permissions,
             reason=f"Requested by {ctx.author}",
         )
-        await ctx.send(f"Created role **{nextcord.utils.escape_markdown(role.name)}**.")
+        selected = ", ".join(sorted(set(requested))) if requested else "none"
+        await ctx.send(
+            f"Created role **{nextcord.utils.escape_markdown(role.name)}**. Permissions: {selected}.",
+            allowed_mentions=nextcord.AllowedMentions.none(),
+        )
     except nextcord.DiscordException as exc:
         await ctx.send(f"Couldn't create role: {exc}")
 
 
 @create_group.command(name="poll")
-@commands.has_permissions(manage_messages=True)
+@commands.cooldown(1, 30, commands.BucketType.user)
 @commands.bot_has_permissions(send_messages=True, add_reactions=True)
 async def create_poll_sub(ctx, *, options: str):
     """Example: bot create poll Messi | Ronaldo | X"""
