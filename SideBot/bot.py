@@ -37,7 +37,7 @@ intents.members = True
 intents.presences = True
 
 bot = commands.Bot(
-    command_prefix=commands.when_mentioned_or("!", "side bot ", "sidebot ", "bobot ", "bot "),
+    command_prefix=commands.when_mentioned_or("!", "509 ", "side bot ", "sidebot ", "bobot ", "bot "),
     intents=intents,
 )
 
@@ -144,7 +144,7 @@ def is_invite_response(raw: str) -> bool:
 
 # ── Command-detection helper ───────────────────────────────────
 _REGISTERED_COMMANDS = {
-    "whoslive", "clean", "clear", "links", "anime", "movies", "football", "manga", "music", "clips", "games", "dayone", "create", "create_role", "assign_role",
+    "whoslive", "clean", "clear", "silent", "links", "anime", "movies", "football", "manga", "music", "clips", "games", "dayone", "create", "create_role", "assign_role",
     "create_poll", "assign_poll_role", "invite", "send", "wipe",
     "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks",
 }
@@ -153,7 +153,7 @@ _INLINE_COMMANDS = {"kiye la"}  # handled inline in on_message, not via @bot.com
 def is_command_text(text: str) -> bool:
     """Return True if text looks like a bot command (with or without 'bot ' prefix)."""
     s = text.lower().strip()
-    for pfx in ("bot ", "bobot ", "sidebot ", "side bot ", "!"):
+    for pfx in ("509 ", "bot ", "bobot ", "sidebot ", "side bot ", "!"):
         if s.startswith(pfx):
             s = s[len(pfx):]
             break
@@ -1455,12 +1455,45 @@ def register_resource_commands():
 
 register_resource_commands()
 
+
+# Temporary private preference per user. Silent mode deletes standard ctx.send
+# responses after 10 seconds; Discord text replies cannot be truly ephemeral.
+silent_command_users = set()
+
+@bot.command(name="silent")
+async def silent_command(ctx, mode: str = "on"):
+    if mode.casefold() in ("on", "enable"):
+        silent_command_users.add(ctx.author.id)
+        await ctx.send("Silent mode enabled. My command replies will disappear after 10 seconds.",
+                       delete_after=10)
+    elif mode.casefold() in ("off", "disable"):
+        silent_command_users.discard(ctx.author.id)
+        await ctx.send("Silent mode disabled.", delete_after=10)
+    else:
+        await ctx.send("Usage: 509 silent on | 509 silent off", delete_after=10)
+
+@bot.event
+async def on_command(ctx):
+    # Remove invocations as soon as a recognized command begins.
+    if ctx.guild:
+        try:
+            await ctx.message.delete()
+        except nextcord.DiscordException:
+            pass
+    if ctx.author.id in silent_command_users and ctx.command.name != "silent":
+        original_send = ctx.send
+        async def temporary_send(*args, **kwargs):
+            kwargs.setdefault("delete_after", 10)
+            return await original_send(*args, **kwargs)
+        ctx.send = temporary_send
+
 @bot.command(name="list")
 async def list_commands(ctx):
     """Show all registered SideBot commands and supported chat triggers."""
     descriptions = {
         "rank": "View your XP and rank, optionally mention a member",
         "links": "Resource directory; moderators can set or remove URLs",
+        "silent": "Turn short-lived command replies on or off: 509 silent on/off",
         "anime": "Anime website",
         "movies": "Movies and TV website",
         "football": "Football and live sports website",
@@ -1492,7 +1525,7 @@ async def list_commands(ctx):
         "ban": "Ban a member, optionally with a reason",
         "unban": "Unban by numeric user ID",
     }
-    lines = ["**SideBot commands**", "Prefixes: `bot`, `sidebot`, `bobot`, `side bot`, `!`"]
+    lines = ["**SideBot commands**", "Prefixes: `509`, `bot`, `sidebot`, `bobot`, `side bot`, `!`"]
     for command in sorted(bot.commands, key=lambda item: item.name):
         if command.hidden or command.name == "help":
             continue
@@ -1920,7 +1953,7 @@ async def on_message(message):
 
     content = message.content.lower()
     # Normalize the aliases for older inline commands and help triggers.
-    for alias in ("side bot ", "sidebot ", "bobot "):
+    for alias in ("509 ", "side bot ", "sidebot ", "bobot "):
         if content.startswith(alias):
             content = "bot " + content[len(alias):]
             break
@@ -1977,7 +2010,7 @@ async def on_message(message):
         return
 
     # Registered commands take precedence. Unknown wake-word messages use AI.
-    wake = re.match(r"^(?:side bot|sidebot|bobot|bot)(?:\s+(.*))?$",
+    wake = re.match(r"^(?:509|side bot|sidebot|bobot|bot)(?:\s+(.*))?$",
                     message.content.strip(), flags=re.IGNORECASE | re.DOTALL)
     if wake:
         ctx = await bot.get_context(message)
