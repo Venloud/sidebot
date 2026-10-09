@@ -1430,6 +1430,37 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    if message.guild and message.content.strip().casefold() == "509website":
+        await message.channel.send(
+            "🌐 **How to Use FMHY**\n\n"
+            "1. Go to https://fmhy.net/\n"
+            "2. Use the 🔎 **Search** button at the top if you already know what you're looking for.\n"
+            "3. Otherwise, scroll through the categories:\n"
+            "   • 🎬 **Streaming**, movies, shows, and other video resources\n"
+            "   • 🍥 **Anime**, search 'anime' for anime-related resources\n"
+            "   • ⚽ **Sports**, search 'sports' or your sport\n"
+            "   • 🎮 **Gaming**, gaming-related resources\n"
+            "   • 📚 **Reading**, manga, comics, books, and more\n"
+            "4. Open the section you want and choose one of the listed resources.\n"
+            "5. If you're confused, open the **Beginners Guide** on the homepage.\n\n"
+            "⚠️ **Use trusted/legal sources and be careful with unfamiliar links, pop-ups, downloads, and ads.**",
+            allowed_mentions=nextcord.AllowedMentions.none(),
+        )
+        await message.channel.send(
+            "🇭🇹 **THE 509 — FOOTBALL**\n"
+            "⚽ Game day?\n"
+            "▶️ Watch here:\nhttps://fmhy.net/video#live-sports\n"
+            "🗣️ Talk about the match in #Lakay\n\n"
+            "1. Open the **Live Sports** page.\n"
+            "2. Scroll through the available website options.\n"
+            "3. Choose whichever service or link you prefer.\n"
+            "4. If one option does not work, go back and try another listed option.\n"
+            "5. Use the search feature on the site if you're looking for a specific sport or event.\n\n"
+            "⚠️ **Only use services that are legal in your location, and be careful with unfamiliar ads, pop-ups, downloads, or requests for personal information.**",
+            allowed_mentions=nextcord.AllowedMentions.none(),
+        )
+        return
+
     if message.content.strip().casefold() in (
         "bot kreyol pale", "sidebot kreyol pale", "bobot kreyol pale", "side bot kreyol pale"
     ):
