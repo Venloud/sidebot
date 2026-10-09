@@ -1,0 +1,8 @@
+.git
+.github
+.state
+.env
+**/.env
+__pycache__
+*.pyc
+dashboard
