@@ -729,6 +729,92 @@ async def welcome_cleanup_ready():
     await bot.wait_until_ready()
 
 
+
+FREE_GAMES_FILE = os.path.join(os.path.dirname(__file__), "free_games_seen.json")
+
+def load_free_games_seen():
+    try:
+        with open(FREE_GAMES_FILE, encoding="utf-8") as handle:
+            value = json.load(handle)
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+free_games_seen = load_free_games_seen()
+
+def save_free_games_seen():
+    temp = FREE_GAMES_FILE + ".tmp"
+    with open(temp, "w", encoding="utf-8") as handle:
+        json.dump(free_games_seen, handle)
+    os.replace(temp, FREE_GAMES_FILE)
+
+def fetch_free_game_offers():
+    """GamerPower official public API, full-game offers only."""
+    response = requests.get(
+        "https://www.gamerpower.com/api/giveaways",
+        params={"type": "game", "sort-by": "date"},
+        headers={"User-Agent": "SideBot-509/1.0 (Discord community free games alerts)"},
+        timeout=20,
+    )
+    if response.status_code == 201:
+        return []
+    response.raise_for_status()
+    data = response.json()
+    return data if isinstance(data, list) else []
+
+@tasks.loop(hours=2)
+async def free_games_watch():
+    """Announce newly discovered full game giveaways without startup flooding."""
+    try:
+        offers = await asyncio.to_thread(fetch_free_game_offers)
+    except (requests.RequestException, ValueError) as exc:
+        print(f"[free games] API error: {exc}")
+        return
+    now_ids = {str(item["id"]) for item in offers if isinstance(item, dict) and "id" in item}
+    for guild in bot.guilds:
+        channel = nextcord.utils.get(guild.text_channels, name="free-games")
+        if not channel or not channel.permissions_for(guild.me).send_messages:
+            continue
+        key = str(guild.id)
+        # At first run store current active deals, don't flood the channel.
+        if key not in free_games_seen:
+            free_games_seen[key] = sorted(now_ids)
+            save_free_games_seen()
+            continue
+        recorded = set(map(str, free_games_seen.get(key, [])))
+        for offer in reversed(offers):
+            if not isinstance(offer, dict):
+                continue
+            identifier = str(offer.get("id", ""))
+            if not identifier or identifier in recorded or offer.get("status", "Active").lower() != "active":
+                continue
+            title = str(offer.get("title", "Free game"))[:150]
+            link = str(offer.get("gamerpower_url", ""))
+            if not link.startswith("https://www.gamerpower.com/"):
+                link = "https://www.gamerpower.com/"
+            platforms = str(offer.get("platforms", "Various platforms"))[:180]
+            expires = str(offer.get("end_date", "See offer page"))[:80]
+            try:
+                await channel.send(
+                    f"🎮 **FREE GAME ALERT**\n**{nextcord.utils.escape_markdown(title)}**\n"
+                    f"Platform: {nextcord.utils.escape_markdown(platforms)}\n"
+                    f"Ends: {nextcord.utils.escape_markdown(expires)}\n"
+                    f"Claim details: {link}\n"
+                    "Source: GamerPower.com • Check offer restrictions before claiming.",
+                    allowed_mentions=nextcord.AllowedMentions.none()
+                )
+            except nextcord.DiscordException as exc:
+                print(f"[free games] failed to post in {guild.name}: {exc}")
+                break
+            recorded.add(identifier)
+            free_games_seen[key] = sorted(recorded)[-1000:]
+            save_free_games_seen()
+
+@free_games_watch.before_loop
+async def free_games_wait_ready():
+    await bot.wait_until_ready()
+
+
 @bot.event
 async def on_ready():
     global bot_start_time
@@ -747,6 +833,8 @@ async def on_ready():
         welcome_cleanup.start()
     if not rank_role_monitor.is_running():
         rank_role_monitor.start()
+    if not free_games_watch.is_running():
+        free_games_watch.start()
     for guild in bot.guilds:
         await ensure_rank_roles(guild)
         await ensure_welcome_guide(guild)
