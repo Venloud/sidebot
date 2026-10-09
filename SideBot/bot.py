@@ -978,7 +978,7 @@ def extract_social_links(content):
     """Accept only recognized public profile URLs, not arbitrary external links."""
     from urllib.parse import urlsplit
     found = {}
-    for raw in re.findall(r"https?://[^\\s<>]+", content, flags=re.IGNORECASE):
+    for raw in re.findall(r"https?://[^\s<>]+", content, flags=re.IGNORECASE):
         url = raw.rstrip(".,!?;:)]}>")
         try:
             parsed = urlsplit(url)
@@ -1021,14 +1021,14 @@ def social_query(message):
         return None
     text = message.content.strip()
     match = re.match(
-        r"^(?:bot|side bot)\\s+(?:(?:what(?:'s| is)?|give|show|get)\\s+)?(.+?)\\s+"
-        r"(youtube|tiktok|twitch|instagram|insta|yt|socials?|links?)\\s*\\??$",
+        r"^(?:bot|side bot)\s+(?:(?:what(?:'s| is)?|give|show|get)\s+)?(.+?)\s+"
+        r"(youtube|tiktok|twitch|instagram|insta|yt|socials?|links?)\s*\??$",
         text, flags=re.IGNORECASE
     )
     if not match:
         return None
     subject, platform = match.groups()
-    subject = re.sub(r"^(?:is|are|does|of|for)\\s+", "", subject.strip(), flags=re.I)
+    subject = re.sub(r"^(?:is|are|does|of|for)\s+", "", subject.strip(), flags=re.I)
     platform = {"insta": "instagram", "yt": "youtube", "social": "all", "socials": "all", "link": "all", "links": "all"}.get(platform.lower(), platform.lower())
     member = next((m for m in message.mentions if m.id != bot.user.id), None)
     if member is None:
@@ -1043,7 +1043,7 @@ def social_query(message):
     if not record:
         return f"No saved social links for {member.mention} yet. Post a profile link in #self-promote."
     if platform == "all":
-        return f"Social links for {member.mention}:\\n" + "\\n".join(f"**{p.title()}:** {url}" for p, url in sorted(record.items()))
+        return f"Social links for {member.mention}:\n" + "\n".join(f"**{p.title()}:** {url}" for p, url in sorted(record.items()))
     url = record.get(platform)
     return f"{member.mention}'s {platform.title()}: {url}" if url else f"No {platform.title()} link saved for {member.mention} yet."
 
