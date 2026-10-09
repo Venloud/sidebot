@@ -48,3 +48,8 @@ XP data is stored locally in `SideBot/xp_scores.json` and saved through GitHub A
 The workflow now launches `scripts/live_runner.py`. It checks the private repository's `main` branch every 60 seconds. When a new commit changes SideBot code, the supervisor validates the new Python syntax, stops the bot process, updates its checkout, and starts the bot again within the **same** Actions job. Non-code changes do not restart the bot. Changes to `requirements.txt` install dependencies before switching.
 
 This is **not zero downtime**: Python must restart to load new definitions and Discord briefly disconnects. The GitHub Actions job itself remains active. The existing running job will not gain this capability until the next job starts with the updated workflow. The standard six-hour GitHub runner limit, scheduled gaps, and limitations of Actions cache remain. In-memory values reset on bot restart, while saved JSON state on disk remains for the new process.
+
+
+## Visual rank cards
+
+Use `bot rank` or `bot rank @member` (also `sidebot rank` and `bobot rank`). SideBot renders a PNG card featuring the member's Discord avatar, current rank, XP, server placement, and progress to the next tier. Pillow is installed via `requirements.txt`. On image-generation errors, it sends a readable text fallback.
