@@ -86,3 +86,13 @@ The bot also needs the corresponding channel, role, thread, event, message, and 
 Any server member can use `bot create poll Messi | Ronaldo | X` in a channel where SideBot can send messages and add reactions. A 30-second per-user cooldown limits spam.
 
 Members with **Manage Roles** permission can create roles and specify a safe subset of permissions using `bot create role VIP | view_channel, send_messages, connect`. Without the `|` section the role has no server-wide permissions. Supported flags: `view_channel`, `send_messages`, `read_message_history`, `embed_links`, `attach_files`, `add_reactions`, `use_external_emojis`, `connect`, `speak`, `stream`, `use_voice_activation`, `create_public_threads`, and `send_messages_in_threads`. The command blocks Administrator and moderation permissions and disallows granting permissions the caller does not possess. Role permissions at the server level do not override explicit channel restrictions.
+
+
+## Private day-one password access
+
+- In the server, moderator: \`bot dayone setup #your-secret-channel\` creates the \`day-one\` role and restricts that text channel to it. SideBot requires Manage Channels and Manage Roles, with its role above \`day-one\`.
+- In **SideBot DMs**, server administrator: \`bot dayone set SERVER_ID permanent YOUR_PASSWORD\` sets a permanent password. It remains valid until replaced.
+- In **SideBot DMs**, server administrator: \`bot dayone set SERVER_ID temporary YOUR_PASSWORD\` sets a password that expires in 24 hours.
+- In **SideBot DMs**, member: \`bot dayone verify SERVER_ID YOUR_PASSWORD\` verifies and receives the \`day-one\` role. Temporary passwords grant access for 24 hours, after which the bot removes the role at its next five-minute check. Permanent passwords grant access without expiry.
+- \`bot dayone\` explains the commands. Passwords must be 8–128 characters and are stored only as salted PBKDF2 hashes in \`SideBot/dayone_access.json\`. Passwords entered in server channels are rejected, and the bot attempts to delete accidental public submissions. Do not post passwords publicly.
+- The GitHub Actions runner restores and saves the day-one state via its \`.state\` cache. This cache is not a guaranteed persistent database; on cache loss, active temporary grants may require manual cleanup. The timer also only runs while the bot is online.
