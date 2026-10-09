@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - run: python -m py_compile SideBot/bot.py
+      - run: python -m py_compile SideBot/bot.py scripts/live_runner.py
       - run: pip install -r requirements.txt
       - name: Restore bot state
         uses: actions/cache/restore@v4
@@ -31,7 +31,7 @@ jobs:
           key: sidebot-state-${{ github.run_id }}
           restore-keys: |
             sidebot-state-
-      - name: Start SideBot
+      - name: Run SideBot with live code updates
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           WELCOME_ROLE_NAME: ${{ vars.WELCOME_ROLE_NAME }}
@@ -49,12 +49,10 @@ jobs:
           for file in announced_live.json member_profiles.json tiktok_users.txt twitch_users.txt social_links.json xp_scores.json; do
             if [ -f ".state/$file" ]; then cp ".state/$file" "SideBot/$file"; fi
           done
-          cd SideBot
           set +e
-          timeout --signal=INT --kill-after=30s 20700s python bot.py
+          python -u scripts/live_runner.py
           status=$?
           set -e
-          cd ..
           for file in announced_live.json member_profiles.json tiktok_users.txt twitch_users.txt social_links.json xp_scores.json; do
             if [ -f "SideBot/$file" ]; then cp "SideBot/$file" ".state/$file"; fi
           done
