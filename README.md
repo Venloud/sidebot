@@ -79,3 +79,10 @@ Use `bot create` to see its available subcommands, also works with `sidebot crea
 - `bot create event Game Night | 2026-10-20 19:00 | 60 | #voice-channel` schedules a voice event at 19:00 UTC lasting 60 minutes (Manage Events). Mention an existing voice or stage channel.
 
 The bot also needs the corresponding channel, role, thread, event, message, and reaction permissions. Existing `bot create_role` and `bot create_poll` commands remain available for compatibility. Restart the bot to apply the update.
+
+
+## Flexible role permissions and community polls
+
+Any server member can use `bot create poll Messi | Ronaldo | X` in a channel where SideBot can send messages and add reactions. A 30-second per-user cooldown limits spam.
+
+Members with **Manage Roles** permission can create roles and specify a safe subset of permissions using `bot create role VIP | view_channel, send_messages, connect`. Without the `|` section the role has no server-wide permissions. Supported flags: `view_channel`, `send_messages`, `read_message_history`, `embed_links`, `attach_files`, `add_reactions`, `use_external_emojis`, `connect`, `speak`, `stream`, `use_voice_activation`, `create_public_threads`, and `send_messages_in_threads`. The command blocks Administrator and moderation permissions and disallows granting permissions the caller does not possess. Role permissions at the server level do not override explicit channel restrictions.
