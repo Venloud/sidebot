@@ -24,8 +24,28 @@ TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET")
 
 # ── Invite link ────────────────────────────────────────────────
-CLIENT_ID   = "1312104099252011150"
-PERMISSIONS = 271674432  # send/read messages, manage messages & roles, embed links, reactions, read history, connect+speak in voice
+CLIENT_ID = "1312104099252011150"
+# Keep this list aligned with implemented features instead of maintaining a
+# fragile hand-calculated integer. Discord still enforces the bot's role
+# hierarchy and channel overrides after installation.
+PERMISSIONS = nextcord.Permissions(
+    view_channel=True,
+    send_messages=True,
+    embed_links=True,
+    attach_files=True,
+    add_reactions=True,
+    read_message_history=True,
+    manage_messages=True,
+    manage_roles=True,
+    manage_channels=True,
+    kick_members=True,
+    ban_members=True,
+    connect=True,
+    speak=True,
+    create_public_threads=True,
+    send_messages_in_threads=True,
+    manage_events=True,
+).value
 INVITE_URL  = (
     f"https://discord.com/oauth2/authorize"
     f"?client_id={CLIENT_ID}&permissions={PERMISSIONS}&scope=bot%20applications.commands"
@@ -146,7 +166,7 @@ def is_invite_response(raw: str) -> bool:
 _REGISTERED_COMMANDS = {
     "whoslive", "clean", "clear", "silent", "links", "anime", "movies", "football", "manga", "music", "clips", "games", "dayone", "create", "create_role", "assign_role",
     "create_poll", "assign_poll_role", "invite", "send", "wipe",
-    "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks",
+    "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks", "badges", "badge", "vault",
 }
 _INLINE_COMMANDS = {"kiye la"}  # handled inline in on_message, not via @bot.command
 
@@ -523,7 +543,8 @@ def api_status():
     })
 
 def run_web_server():
-    web_app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+    port = int(os.getenv("PORT", "5000"))
+    web_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 # ──────────────────────────────────────────────────────────────
 
 # ── Sports scores via ESPN public API ─────────────────────────
@@ -838,6 +859,7 @@ async def on_ready():
     for guild in bot.guilds:
         await ensure_rank_roles(guild)
         await ensure_welcome_guide(guild)
+        await cleanup_stale_vault_roles(guild)
 
 @bot.event
 async def on_guild_join(guild):
@@ -1251,6 +1273,150 @@ def social_query(message):
     return f"{member.mention}'s {platform.title()}: {url}" if url else f"No {platform.title()} link saved for {member.mention} yet."
 
 
+# ── Message counts, accolades and one-time Vault access ───────────────
+MESSAGE_COUNTS_FILE = os.path.join(os.path.dirname(__file__), "message_counts.json")
+BADGES_FILE = os.path.join(os.path.dirname(__file__), "badges.json")
+VAULT_FILE = os.path.join(os.path.dirname(__file__), "vault_access.json")
+VAULT_ROLE_NAME = "Secret Access"
+VAULT_JOIN_TIMEOUT_SECONDS = 300
+
+SPECIAL_BADGES = {
+    "veteran": ("🐐", "509 Veteran"),
+    "royalty": ("👑", "509 Royalty"),
+    "hall": ("🏆", "Hall of 509"),
+    "fc_champion": ("⚽", "FC Champion"),
+    "funniest_clip": ("😂", "Funniest Clip"),
+    "anime_plug": ("🍥", "Anime Plug"),
+    "football_expert": ("🏟️", "Football Expert"),
+    "grinder": ("🎮", "Grinder"),
+}
+
+def _load_json_dict(path):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = json.load(handle)
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+def _atomic_json_save(path, value):
+    temporary = path + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(value, handle, ensure_ascii=False, indent=2)
+    os.replace(temporary, path)
+
+message_counts = _load_json_dict(MESSAGE_COUNTS_FILE)
+badge_data = _load_json_dict(BADGES_FILE)
+vault_data = _load_json_dict(VAULT_FILE)
+vault_pending = {}  # (guild_id, user_id) -> {"joined": bool, "task": asyncio.Task}
+
+def save_message_counts():
+    _atomic_json_save(MESSAGE_COUNTS_FILE, message_counts)
+
+def save_badges():
+    _atomic_json_save(BADGES_FILE, badge_data)
+
+def save_vault():
+    _atomic_json_save(VAULT_FILE, vault_data)
+
+def record_message_count(message):
+    """Count normal member messages for the rank-card footer."""
+    if not message.guild or message.author.bot:
+        return
+    content = message.content.strip()
+    if not content or is_command_text(content) or content.startswith("/"):
+        return
+    guild_counts = message_counts.setdefault(str(message.guild.id), {})
+    key = str(message.author.id)
+    guild_counts[key] = max(0, int(guild_counts.get(key, 0))) + 1
+    save_message_counts()
+
+def badges_for(guild_id, user_id):
+    """Every member has The 509 badge; special badges are explicit grants."""
+    stored = badge_data.get(str(guild_id), {}).get(str(user_id), [])
+    rendered = [("🇭🇹", "The 509")]
+    for code in stored:
+        if code in SPECIAL_BADGES:
+            rendered.append(SPECIAL_BADGES[code])
+    return rendered
+
+def format_badges(guild_id, user_id):
+    return " • ".join(f"{emoji} {name}" for emoji, name in badges_for(guild_id, user_id))
+
+def _vault_digest(secret, salt):
+    import hashlib
+    return hashlib.pbkdf2_hmac("sha256", secret.encode(), bytes.fromhex(salt), 260000).hex()
+
+def _vault_entry(guild_id):
+    return vault_data.setdefault(str(guild_id), {})
+
+def _vault_configured(guild_id):
+    entry = vault_data.get(str(guild_id), {})
+    return bool(entry.get("channel_id") and entry.get("role_id") and entry.get("salt") and entry.get("digest"))
+
+async def _vault_remove_access(member, reason):
+    entry = vault_data.get(str(member.guild.id), {})
+    role = member.guild.get_role(int(entry.get("role_id", 0))) if entry else None
+    if role and role in member.roles and role < member.guild.me.top_role:
+        try:
+            await member.remove_roles(role, reason=reason)
+        except nextcord.DiscordException as exc:
+            print(f"[vault] Could not remove role from {member.id}: {exc}")
+    key = (member.guild.id, member.id)
+    pending = vault_pending.pop(key, None)
+    task = pending.get("task") if pending else None
+    if task and task is not asyncio.current_task() and not task.done():
+        task.cancel()
+
+async def _vault_expire_if_unused(guild_id, user_id):
+    try:
+        await asyncio.sleep(VAULT_JOIN_TIMEOUT_SECONDS)
+        guild = bot.get_guild(guild_id)
+        member = guild.get_member(user_id) if guild else None
+        state = vault_pending.get((guild_id, user_id))
+        if member and state and not state.get("joined"):
+            await _vault_remove_access(member, "Vault join window expired")
+    except asyncio.CancelledError:
+        pass
+
+async def _vault_grant(member, password):
+    entry = vault_data.get(str(member.guild.id), {})
+    if not _vault_configured(member.guild.id):
+        return False, "The Vault has not been configured yet."
+    expected = entry.get("digest", "")
+    salt = entry.get("salt", "")
+    if not hmac.compare_digest(_vault_digest(password, salt), expected):
+        return False, "Invalid code."
+    role = member.guild.get_role(int(entry["role_id"]))
+    channel = member.guild.get_channel(int(entry["channel_id"]))
+    if not role or not isinstance(channel, nextcord.VoiceChannel) or role >= member.guild.me.top_role:
+        return False, "Vault configuration is invalid. Ask an admin to run the setup again."
+    try:
+        await member.add_roles(role, reason="One-time Vault code verified")
+    except nextcord.DiscordException as exc:
+        return False, f"Couldn't grant Vault access: {exc}"
+    key = (member.guild.id, member.id)
+    previous = vault_pending.pop(key, None)
+    if previous and previous.get("task") and not previous["task"].done():
+        previous["task"].cancel()
+    task = asyncio.create_task(_vault_expire_if_unused(member.guild.id, member.id))
+    vault_pending[key] = {"joined": False, "task": task}
+    return True, f"🔓 Access granted. {channel.mention} is visible for 5 minutes. Access ends when you leave it."
+
+async def cleanup_stale_vault_roles(guild):
+    """On restart, one-time access must never silently become permanent."""
+    entry = vault_data.get(str(guild.id), {})
+    role = guild.get_role(int(entry.get("role_id", 0))) if entry else None
+    channel = guild.get_channel(int(entry.get("channel_id", 0))) if entry else None
+    if not role or not isinstance(channel, nextcord.VoiceChannel) or role >= guild.me.top_role:
+        return
+    for member in list(role.members):
+        if not member.voice or member.voice.channel != channel:
+            try:
+                await member.remove_roles(role, reason="Clearing stale one-time Vault access after restart")
+            except nextcord.DiscordException:
+                pass
+
 # XP is server-specific. Only normal messages count, with a cooldown.
 XP_FILE = os.path.join(os.path.dirname(__file__), "xp_scores.json")
 XP_RANKS = (
@@ -1504,6 +1670,9 @@ async def list_commands(ctx):
         "leaderboard": "Top 10 members by XP (alias: top)",
         "ranks": "View all rank thresholds",
         "setupranks": "Create rank roles (Manage Roles required)",
+        "badges": "Show your 509 member and achievement badges",
+        "badge": "Manage special 509 achievement badges (Manage Roles required)",
+        "vault": "Configure one-time secret voice access; members use /vault",
         "ping": "Check bot latency and monitor status",
         "clean": "Delete messages (alias: clear; Manage Messages required)",
         "create_role": "Create a Discord role (Manage Roles required)",
@@ -1579,7 +1748,7 @@ async def role_permissions_command(ctx, *, role_name: str = ""):
         await ctx.send(body, allowed_mentions=nextcord.AllowedMentions.none())
 
 
-def draw_rank_card(display_name, avatar_bytes, xp, placement):
+def draw_rank_card(display_name, avatar_bytes, xp, placement, message_count=0, joined_label="Unknown"):
     """Render a personalized card inspired by the blue, red and silver 509 crest."""
     from io import BytesIO
     from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -1680,12 +1849,11 @@ def draw_rank_card(display_name, avatar_bytes, xp, placement):
         d.rounded_rectangle((left, top, left+filled, bottom), radius=min(12,filled//2), fill=red if number==8 else blue)
     d.text((988, 220), f"{ratio*100:.0f}%", fill=(221, 229, 243), font=font(15, True), anchor="ra")
 
-    # Footer metadata, no fabricated message count or joining date.
+    # Footer metadata mirrors the intended 509 rank-card layout.
     d.line((33, 282, W-33, 282), fill=(53, 67, 98), width=2)
-    d.text((44, 297), f"SERVER RANK  #{placement}", fill=white, font=font(19, True))
-    d.text((390, 297), f"{xp:,} TOTAL XP", fill=(154, 181, 225), font=font(19, True))
-    d.text((755, 297), f"NEXT: {following[0].upper()}" if following else "HIMOTHY UNLOCKED",
-           fill=(255, 139, 151), font=font(17, True))
+    d.text((44, 297), f"💬 {message_count:,} MESSAGES", fill=white, font=font(18, True))
+    d.text((365, 297), f"SERVER RANK  #{placement}", fill=(154, 181, 225), font=font(18, True))
+    d.text((700, 297), f"JOINED {joined_label.upper()}", fill=(221, 229, 243), font=font(17, True))
     output = BytesIO()
     img.convert("RGB").save(output, format="PNG")
     output.seek(0)
@@ -1703,8 +1871,16 @@ async def rank_command(ctx, member: nextcord.Member = None):
     placement = 1 + sum(int(score) > xp for score in scores.values())
     try:
         avatar_bytes = await member.display_avatar.read()
-        card = await asyncio.to_thread(draw_rank_card, member.display_name, avatar_bytes, xp, placement)
-        await ctx.send(file=nextcord.File(card, filename="sidebot-rank.png"))
+        count = int(message_counts.get(str(ctx.guild.id), {}).get(str(member.id), 0))
+        joined_label = member.joined_at.strftime("%b %Y") if member.joined_at else "Unknown"
+        card = await asyncio.to_thread(
+            draw_rank_card, member.display_name, avatar_bytes, xp, placement, count, joined_label
+        )
+        await ctx.send(
+            content=f"**Badges:** {format_badges(ctx.guild.id, member.id)}",
+            file=nextcord.File(card, filename="sidebot-rank.png"),
+            allowed_mentions=nextcord.AllowedMentions.none(),
+        )
     except (nextcord.DiscordException, OSError, ValueError) as exc:
         print(f"[rank card] Failed: {exc}")
         name, _, _ = rank_for_xp(xp)
@@ -1823,6 +1999,7 @@ async def on_message(message):
         return
 
     if message.guild:
+        record_message_count(message)
         await grant_message_xp(message)
         if message.channel.name.lower() in SOCIAL_CHANNEL_NAMES:
             links = extract_social_links(message.content)
@@ -2445,6 +2622,234 @@ async def dayone_expiry_check():
     if dirty:
         dayone_save()
 
+
+@bot.command(name="badges")
+async def badges_command(ctx, member: nextcord.Member = None):
+    """Show a member's SideBot accolades."""
+    if not ctx.guild:
+        return
+    member = member or ctx.author
+    await ctx.send(
+        f"**{nextcord.utils.escape_markdown(member.display_name)} — Badges**\n"
+        + format_badges(ctx.guild.id, member.id),
+        allowed_mentions=nextcord.AllowedMentions.none(),
+    )
+
+@bot.group(name="badge", invoke_without_command=True)
+async def badge_group(ctx):
+    if not ctx.guild:
+        return
+    available = "\n".join(
+        f"`{code}` — {emoji} {name}" for code, (emoji, name) in SPECIAL_BADGES.items()
+    )
+    await ctx.send("**Special 509 badges**\n" + available + "\nAdmins: `bot badge grant @member CODE`")
+
+@badge_group.command(name="grant")
+@commands.has_permissions(manage_roles=True)
+async def badge_grant(ctx, member: nextcord.Member, code: str):
+    code = code.casefold()
+    if code not in SPECIAL_BADGES:
+        await ctx.send("Unknown badge code. Use `bot badge`.")
+        return
+    guild_badges = badge_data.setdefault(str(ctx.guild.id), {})
+    owned = guild_badges.setdefault(str(member.id), [])
+    if code not in owned:
+        owned.append(code)
+        save_badges()
+    emoji, name = SPECIAL_BADGES[code]
+    await ctx.send(f"Granted {emoji} **{name}** to {member.display_name}.")
+
+@badge_group.command(name="remove")
+@commands.has_permissions(manage_roles=True)
+async def badge_remove(ctx, member: nextcord.Member, code: str):
+    code = code.casefold()
+    owned = badge_data.setdefault(str(ctx.guild.id), {}).setdefault(str(member.id), [])
+    if code in owned:
+        owned.remove(code)
+        save_badges()
+    await ctx.send(f"Removed badge `{code}` from {member.display_name} if they had it.")
+
+@bot.group(name="vault", invoke_without_command=True)
+async def vault_group(ctx):
+    await ctx.send(
+        "**The 509 Vault**\n"
+        "Admins in server: `bot vault setup #voice-channel`\n"
+        "Admins in my DMs: `bot vault set SERVER_ID YOUR_SECRET_CODE`\n"
+        "Members should use **/vault** so the code is never posted publicly."
+    )
+
+@vault_group.command(name="setup")
+@commands.has_permissions(manage_roles=True, manage_channels=True)
+@commands.bot_has_permissions(manage_roles=True, manage_channels=True)
+async def vault_setup(ctx, channel: nextcord.VoiceChannel):
+    if not ctx.guild:
+        return
+    role = nextcord.utils.get(ctx.guild.roles, name=VAULT_ROLE_NAME)
+    if role is None:
+        role = await ctx.guild.create_role(
+            name=VAULT_ROLE_NAME,
+            permissions=nextcord.Permissions.none(),
+            reason="SideBot one-time Vault access",
+        )
+    if role >= ctx.guild.me.top_role:
+        await ctx.send("Move SideBot's role above **Secret Access**, then run setup again.")
+        return
+    await channel.set_permissions(
+        ctx.guild.default_role, view_channel=False, connect=False,
+        reason="Hide The 509 Vault from unverified members",
+    )
+    await channel.set_permissions(
+        role, view_channel=True, connect=True,
+        reason="Allow one-time Vault access",
+    )
+    entry = _vault_entry(ctx.guild.id)
+    entry["channel_id"] = channel.id
+    entry["role_id"] = role.id
+    save_vault()
+    await ctx.send(
+        f"🔒 {channel.mention} is now linked to **{VAULT_ROLE_NAME}**. "
+        f"Set the secret code privately with `bot vault set {ctx.guild.id} YOUR_CODE` in my DMs."
+    )
+
+@vault_group.command(name="set")
+async def vault_set(ctx, guild_id: int, *, password: str):
+    if ctx.guild:
+        try:
+            if ctx.channel.permissions_for(ctx.guild.me).manage_messages:
+                await ctx.message.delete()
+        except nextcord.DiscordException:
+            pass
+        await ctx.author.send("For security, set the Vault code only in my DMs.")
+        return
+    guild = bot.get_guild(guild_id)
+    member = guild.get_member(ctx.author.id) if guild else None
+    if not member or not member.guild_permissions.administrator:
+        await ctx.send("Server Administrator permission required.")
+        return
+    if not 8 <= len(password) <= 128:
+        await ctx.send("Use a Vault code between 8 and 128 characters.")
+        return
+    import secrets
+    salt = secrets.token_hex(16)
+    entry = _vault_entry(guild_id)
+    entry["salt"] = salt
+    entry["digest"] = _vault_digest(password, salt)
+    save_vault()
+    await ctx.send(f"Vault code updated for **{guild.name}**. I only stored a salted hash.")
+
+@bot.slash_command(name="vault", description="Enter The 509 secret Vault code")
+async def vault_slash(
+    interaction: nextcord.Interaction,
+    code: str = nextcord.SlashOption(description="Secret Vault code", required=True),
+):
+    if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+        await interaction.response.send_message("Use this command inside The 509 server.", ephemeral=True)
+        return
+    ok, message = await _vault_grant(interaction.user, code)
+    await interaction.response.send_message(message if ok else f"❌ {message}", ephemeral=True)
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    entry = vault_data.get(str(member.guild.id), {})
+    channel_id = int(entry.get("channel_id", 0)) if entry else 0
+    role_id = int(entry.get("role_id", 0)) if entry else 0
+    if not channel_id or not role_id:
+        return
+    role = member.guild.get_role(role_id)
+    if not role or role not in member.roles:
+        return
+    key = (member.guild.id, member.id)
+    if after.channel and after.channel.id == channel_id:
+        state = vault_pending.get(key)
+        if state:
+            state["joined"] = True
+            task = state.get("task")
+            if task and not task.done():
+                task.cancel()
+        return
+    if before.channel and before.channel.id == channel_id and (not after.channel or after.channel.id != channel_id):
+        await _vault_remove_access(member, "One-time Vault session ended")
+
+# Slash-command-first interface for the features members use most.
+@bot.slash_command(name="rank", description="Show your SideBot rank card")
+async def rank_slash(
+    interaction: nextcord.Interaction,
+    member: nextcord.Member = nextcord.SlashOption(description="Member to inspect", required=False),
+):
+    if not interaction.guild:
+        await interaction.response.send_message("Use this in a server.", ephemeral=True)
+        return
+    member = member or interaction.user
+    await interaction.response.defer()
+    scores = xp_scores.get(str(interaction.guild.id), {})
+    xp = max(0, int(scores.get(str(member.id), 0)))
+    placement = 1 + sum(int(score) > xp for score in scores.values())
+    count = int(message_counts.get(str(interaction.guild.id), {}).get(str(member.id), 0))
+    joined_label = member.joined_at.strftime("%b %Y") if member.joined_at else "Unknown"
+    try:
+        avatar_bytes = await member.display_avatar.read()
+        card = await asyncio.to_thread(
+            draw_rank_card, member.display_name, avatar_bytes, xp, placement, count, joined_label
+        )
+        await interaction.followup.send(
+            content=f"**Badges:** {format_badges(interaction.guild.id, member.id)}",
+            file=nextcord.File(card, filename="sidebot-rank.png"),
+            allowed_mentions=nextcord.AllowedMentions.none(),
+        )
+    except (nextcord.DiscordException, OSError, ValueError) as exc:
+        print(f"[rank slash] Failed: {exc}")
+        await interaction.followup.send(
+            f"{member.display_name} | {rank_for_xp(xp)[0]} | {xp:,} XP | #{placement}"
+        )
+
+@bot.slash_command(name="leaderboard", description="Show The 509 XP leaderboard")
+async def leaderboard_slash(interaction: nextcord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("Use this in a server.", ephemeral=True)
+        return
+    scores = xp_scores.get(str(interaction.guild.id), {})
+    top = sorted(((uid, int(xp)) for uid, xp in scores.items()), key=lambda x: x[1], reverse=True)[:10]
+    if not top:
+        await interaction.response.send_message("No points earned yet.")
+        return
+    rows = []
+    for position, (uid, xp) in enumerate(top, 1):
+        member = interaction.guild.get_member(int(uid))
+        label = member.display_name if member else f"Member {uid}"
+        rows.append(f"{position}. {nextcord.utils.escape_markdown(label)} — {xp:,} XP ({rank_for_xp(xp)[0]})")
+    await interaction.response.send_message("**SideBot Leaderboard**\n" + "\n".join(rows))
+
+@bot.slash_command(name="links", description="Show The 509 resource directory")
+async def links_slash(interaction: nextcord.Interaction):
+    status = "\n".join(
+        f"• **{key}** — {'available' if resource_url_valid(resource_links.get(key, {}).get('url', '')) else 'not configured'}"
+        for key in RESOURCE_CATEGORIES
+    )
+    await interaction.response.send_message("🇭🇹 **THE 509 — USEFUL LINKS**\n" + status, ephemeral=True)
+
+def _register_resource_slash_commands():
+    for category in RESOURCE_CATEGORIES:
+        async def slash_resource(interaction: nextcord.Interaction, _category=category):
+            await interaction.response.send_message(resource_reply(_category), ephemeral=True)
+        slash_resource.__name__ = f"slash_resource_{category}"
+        bot.slash_command(name=category, description=f"Show The 509 {category} resource")(slash_resource)
+
+_register_resource_slash_commands()
+
+@bot.slash_command(name="badges", description="Show your 509 badges")
+async def badges_slash(
+    interaction: nextcord.Interaction,
+    member: nextcord.Member = nextcord.SlashOption(description="Member to inspect", required=False),
+):
+    if not interaction.guild:
+        await interaction.response.send_message("Use this in a server.", ephemeral=True)
+        return
+    member = member or interaction.user
+    await interaction.response.send_message(
+        f"**{nextcord.utils.escape_markdown(member.display_name)} — Badges**\n"
+        + format_badges(interaction.guild.id, member.id),
+        ephemeral=True,
+    )
 
 @bot.group(name="create", invoke_without_command=True)
 async def create_group(ctx):
