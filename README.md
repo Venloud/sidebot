@@ -96,3 +96,8 @@ Members with **Manage Roles** permission can create roles and specify a safe sub
 - In **SideBot DMs**, member: \`bot dayone verify SERVER_ID YOUR_PASSWORD\` verifies and receives the \`day-one\` role. Temporary passwords grant access for 24 hours, after which the bot removes the role at its next five-minute check. Permanent passwords grant access without expiry.
 - \`bot dayone\` explains the commands. Passwords must be 8–128 characters and are stored only as salted PBKDF2 hashes in \`SideBot/dayone_access.json\`. Passwords entered in server channels are rejected, and the bot attempts to delete accidental public submissions. Do not post passwords publicly.
 - The GitHub Actions runner restores and saves the day-one state via its \`.state\` cache. This cache is not a guaranteed persistent database; on cache loss, active temporary grants may require manual cleanup. The timer also only runs while the bot is online.
+
+
+## Welcome channel automation
+
+On startup, SideBot posts and pins one server guide in `#welcome` containing the 509 channel directory, rules, rank names, bot commands and day-one access information. It checks for an existing guide to avoid reposting on most restarts. Every six hours it deletes up to 250 unpinned messages older than three days from `#welcome` only, preserving other pinned posts and the bot's guide. Requires View Channel, Read Message History, Send Messages, and Manage Messages in `#welcome`. The normal new-member welcome post and onboarding DM still run.
