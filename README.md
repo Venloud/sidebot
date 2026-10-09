@@ -1,7 +1,7 @@
 # SideBot private GitHub setup
 
 1. Create a **private** GitHub repository and upload the contents of this folder to its root. Do not upload the original source ZIP or its `.git` directory.
-2. In the repo, open **Settings > Secrets and variables > Actions > New repository secret**. Add the required `DISCORD_TOKEN`. Also add `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `GROQ_API_KEY`, `DASHBOARD_PASSWORD`, and `SESSION_SECRET` if you use those features.
+2. In the repo, open **Settings > Secrets and variables > Actions > New repository secret**. Add the required `DISCORD_TOKEN`. Also add `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `YOUTUBE_API_KEY`, `GROQ_API_KEY`, `DASHBOARD_PASSWORD`, and `SESSION_SECRET` if you use those features.
 3. Open **Actions > SideBot Discord > Run workflow** to launch immediately. Scheduled runs use UTC at 00:00, 06:00, 12:00, and 18:00.
 4. Make sure **Message Content**, **Server Members**, and **Presence** privileged intents are enabled in Discord Developer Portal for this bot.
 
@@ -144,3 +144,20 @@ The `{silent}` token hides no user-facing custom response on its own, but suppre
 **Restrictions:** `{!command}` (privileged command execution), `{dm:user}` (DM others), `{everyone}`, and `{here}` mass mentions are disabled for safety. `{user.coins}`, `{user.short_coins}`, `{user.streak}`, and the removed Discord regional server property are not implemented because those data sources aren't present. The level variable currently displays the named SideBot rank, not a numeric Tatsu level. Admin commands cannot be shadowed by custom triggers. Discord messages use safe allowed mentions.
 
 Definitions are stored in `SideBot/custom_commands.json` with normal GitHub Actions cache restoration. They have not been live-tested. Never store credentials or passwords in commands.
+
+
+## Completed 509 migration features
+
+- **One-time secret voice access**: admins run `509 vault setup #voice-channel`, then set the password privately in SideBot DMs with `509 vault set SERVER_ID PASSWORD`. Members use **`/vault`**. Access expires after five minutes if unused and is removed immediately when the member leaves, switches away from, or disconnects from the configured Vault voice channel. Passwords are stored only as salted PBKDF2 hashes.
+- **509 badges/accolades**: every member displays the universal **🇭🇹 The 509** badge. Rare special badges can be granted with `509 badge grant @member CODE`, removed with `509 badge remove @member CODE`, and viewed with `/badges`.
+- **Rank cards**: `/rank` and `/profile` include XP, rank, server placement, SideBot-tracked message count, server join month/year, and badge text.
+- **Slash commands**: member-facing commands include `/rank`, `/profile`, `/leaderboard`, `/freegames`, `/links`, all configured resource commands, `/badges`, and `/vault`.
+- **Free-game lookup**: `/freegames` shows currently active full-game giveaways from the same GamerPower source used by the automatic `#free-games` watcher.
+- **Invite permissions**: the generated install link now requests the specific permissions required by currently implemented moderation, channel, role, thread, event, rank-card and voice features. Do not grant Administrator.
+- **Host compatibility**: the Flask monitor respects the host-provided `PORT` variable, defaulting to 5000.
+
+New runtime files: `message_counts.json`, `badges.json`, and `vault_access.json`. GitHub Actions cache persists them for testing, but cache is not durable production storage.
+
+### Production requirement
+
+GitHub Actions remains a test host, not dependable 24/7 Discord hosting. Before permanently removing replacement bots, deploy SideBot to an always-on host with persistent SQLite/PostgreSQL storage, verify privileged Discord intents and role hierarchy, then test ranks, resource commands, free-game alerts, moderation, and Vault access in the live server.
