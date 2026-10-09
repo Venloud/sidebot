@@ -2029,7 +2029,7 @@ def draw_rank_card(display_name, avatar_bytes, xp, placement, message_count=0, j
         from rank_card_assets import render_asset_rank_card
         new_card = render_asset_rank_card(
             display_name, avatar_bytes, xp, placement, message_count, joined_label,
-            equipped_rank_number=equipped_rank_number,
+            equipped_rank_number=equipped_number,
             ranks=XP_RANKS,
         )
         if new_card is not None:
