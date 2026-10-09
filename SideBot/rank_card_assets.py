@@ -66,16 +66,18 @@ def render_asset_rank_card(display_name, avatar_bytes, xp, placement,
               font=font(36),fill=white)
     ratio = min(1.0,max(0.0,(xp-floor)/(target-floor))) if next_rank else 1.0
     # Track is baked into the image; only fill the inner portion.
-    bar_x,bar_y,bar_w,bar_h = 1170,384,780,32
+    # Align the dynamic fill inside the baked track, not across its left border.
+    bar_x,bar_y,bar_w,bar_h = 1210,390,785,43
     if ratio>0:
         width=max(1,round(bar_w*ratio))
         draw.rounded_rectangle((bar_x,bar_y,bar_x+width,bar_y+bar_h),
                                radius=min(16,width//2),fill=(245,56,73,255) if number==8 else (35,110,255,255))
-    draw.text((2050,380),f"{round(ratio*100)}%",font=font(34),anchor="ra",fill=white)
+    draw.text((2090,390),f"{round(ratio*100)}%",font=font(30),anchor="ra",fill=white)
     draw.text((218,530),f"{message_count:,} messages",font=fitted(f"{message_count:,} messages",365,36),fill=white)
     draw.text((850,530),f"Server Rank: #{placement}",font=font(34),fill=white)
     draw.text((1535,530),f"Joined {joined_label}",font=fitted(f"Joined {joined_label}",430,34),fill=white)
     output = BytesIO()
-    canvas.convert("RGB").save(output,format="PNG")
+    # Render at source resolution and publish a Discord-friendly 1086x362 card.
+    canvas.convert("RGB").resize((1086, 362), Image.Resampling.LANCZOS).save(output,format="PNG")
     output.seek(0)
     return output
