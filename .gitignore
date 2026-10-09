@@ -11,3 +11,9 @@ SideBot/twitch_users.txt
 SideBot/social_links.json
 
 SideBot/xp_scores.json
+
+SideBot/dayone_access.json
+SideBot/free_games_seen.json
+SideBot/message_counts.json
+SideBot/badges.json
+SideBot/vault_access.json
