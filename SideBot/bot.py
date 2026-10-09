@@ -631,9 +631,12 @@ async def on_ready():
     bot_start_time = datetime.utcnow().isoformat()
     print(f"Bot is ready! Logged in as {bot.user.name}")
     print("Mwen back anbet! 🚀")
-    threading.Thread(target=run_web_server, daemon=True).start()
+    if not getattr(bot, "_dashboard_started", False):
+        threading.Thread(target=run_web_server, daemon=True).start()
+        bot._dashboard_started = True
     add_event(f"Bot online as {bot.user.name}")
-    check_live_status.start()
+    if not check_live_status.is_running():
+        check_live_status.start()
 
 @bot.event
 async def on_guild_join(guild):
@@ -659,20 +662,18 @@ async def on_guild_join(guild):
 @bot.event
 async def on_member_join(member):
     """Assign all accessible roles and start the onboarding DM flow."""
-    # Give all non-admin, non-managed roles below the bot's highest role
-    roles_to_give = [
-        role for role in member.guild.roles
-        if not role.is_default()
-        and not role.managed
-        and not role.permissions.administrator
-        and role < member.guild.me.top_role
-    ]
-    if roles_to_give:
-        try:
-            await member.add_roles(*roles_to_give, reason="Auto all-access on join")
-            print(f"Assigned {len(roles_to_give)} role(s) to {member.name}")
-        except Exception as e:
-            print(f"Could not assign roles to {member.name}: {e}")
+    # Do not grant all server roles to new members.
+    welcome_role_name = os.getenv("WELCOME_ROLE_NAME", "").strip()
+    if welcome_role_name:
+        role = nextcord.utils.get(member.guild.roles, name=welcome_role_name)
+        if role and not role.managed and not role.permissions.administrator and role < member.guild.me.top_role:
+            try:
+                await member.add_roles(role, reason="Configured welcome role")
+                print(f"Assigned welcome role {role.name} to {member.name}")
+            except nextcord.DiscordException as e:
+                print(f"Could not assign welcome role: {e}")
+        else:
+            print(f"Skipping unavailable or unsafe welcome role: {welcome_role_name}")
 
     # Welcome message in #welcome or #general
     welcome_channel = (
@@ -1116,15 +1117,17 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-@tasks.loop(minutes=1)
+@tasks.loop(minutes=5)
 async def check_live_status():
     global last_check_time
     print("Running live status check...")
-    access_token = get_twitch_access_token()
+    access_token = await asyncio.to_thread(get_twitch_access_token) if TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET else None
     currently_live = set()
 
     for username in bot.twitch_usernames:
-        is_live, link = check_twitch_live(username, access_token)
+        if not access_token:
+            break
+        is_live, link = await asyncio.to_thread(check_twitch_live, username, access_token)
         if is_live:
             currently_live.add(username)
             if username not in announced_live_sessions:
@@ -1134,7 +1137,7 @@ async def check_live_status():
                 await send_live_notification(f"**{username}** ap fè live sou Twitch! 🔴 {link}")
 
     for username in bot.tiktok_usernames:
-        is_live, link = check_tiktok_live(username)
+        is_live, link = await asyncio.to_thread(check_tiktok_live, username)
         if is_live:
             currently_live.add(username)
             if username not in announced_live_sessions:
@@ -1162,15 +1165,27 @@ def get_twitch_access_token():
         "client_secret": TWITCH_CLIENT_SECRET,
         "grant_type": "client_credentials"
     }
-    response = requests.post(url, params=params)
-    return response.json().get("access_token") if response.status_code == 200 else None
+    try:
+        response = requests.post(url, data=params, timeout=10)
+        response.raise_for_status()
+        return response.json().get("access_token")
+    except (requests.RequestException, ValueError) as e:
+        print(f"Twitch authentication failed: {e}")
+        return None
 
 def check_twitch_live(username, access_token):
     url = f"https://api.twitch.tv/helix/streams?user_login={username}"
     headers = {"Client-ID": TWITCH_CLIENT_ID, "Authorization": f"Bearer {access_token}"}
-    response = requests.get(url, headers=headers)
-    data = response.json().get("data", [])
-    return (True, f"https://www.twitch.tv/{username}") if data else (False, None)
+    if not access_token or not TWITCH_CLIENT_ID:
+        return (False, None)
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json().get("data", [])
+        return (True, f"https://www.twitch.tv/{username}") if data else (False, None)
+    except (requests.RequestException, ValueError) as e:
+        print(f"Twitch check failed for {username}: {e}")
+        return (False, None)
 
 def check_tiktok_live(username):
     """
@@ -1219,9 +1234,21 @@ async def send_live_notification(message):
         if live_channel:
             await live_channel.send(message)
 
+@bot.command(name="ping")
+@commands.cooldown(1, 10, commands.BucketType.user)
+async def ping(ctx):
+    """Check Discord gateway latency and monitoring status."""
+    latency = round(bot.latency * 1000)
+    monitor = "active" if check_live_status.is_running() else "inactive"
+    await ctx.send(f"🏓 Pong! {latency} ms | Live monitor: {monitor}")
+
+
 @bot.command(name="clean")
 @commands.has_permissions(manage_messages=True)
 async def clean(ctx, amount: int = 50):
+    if not 1 <= amount <= 100:
+        await ctx.send("**Chwazi yon kantite ant 1 ak 100.**")
+        return
     await ctx.channel.purge(limit=amount)
     await ctx.send(f"**{amount} mesaj yo efase.**", delete_after=5)
 
@@ -1553,6 +1580,8 @@ if __name__ == "__main__":
     else:
         try:
             print("Starting bot...")
+            if not DISCORD_TOKEN:
+                raise RuntimeError("DISCORD_TOKEN is missing. Set it in GitHub Actions secrets.")
             bot.run(DISCORD_TOKEN)
         except Exception as e:
             print(f"ERROR starting bot: {e}")
