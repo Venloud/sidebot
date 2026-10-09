@@ -19,3 +19,7 @@ Never commit bot tokens or the original `.env`; if the uploaded archive containe
 - The workflow checks Python syntax before installing dependencies and starting the bot.
 
 **Note:** This setup has not been validated by a successful live GitHub Actions run. GitHub hosted runners are not always-on hosting; a server or persistent service is required for reliable 24/7 operation.
+
+
+## Self promotion link memory
+Members can post their YouTube channel, TikTok profile, Twitch channel, or Instagram profile URL in **#self-promote**, **#self-promo**, or **#self-promotion**. SideBot stores the links for that server and Discord user. Ask `bot what @member youtube`, `bot @member instagram`, or `bot @member socials`. Mention the member for best matching. Links saved after deployment are cached between GitHub Actions runs, but caches are not a durable database, and older posts are not imported automatically.
