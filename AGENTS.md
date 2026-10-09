@@ -130,3 +130,26 @@ The member's real XP rank and their equipped display badge are different concept
 - The equipped badge is decorative and appears next to the member's name on SideBot's profile/rank card.
 - Do not claim SideBot can modify a user's native Discord account badge area. Native role icons are a separate Discord feature.
 - Keep equipped selections persisted independently from special accolade grants.
+
+
+## Native Discord role-icon contract
+
+SideBot supports two badge surfaces:
+
+1. SideBot-generated profile/rank cards, which work everywhere.
+2. Native Discord role icons, which require Discord Server Boost Level 2.
+
+Native role icons use dedicated permission-free roles named `Badge | <Rank>`. They are decorative and must remain separate from the actual XP roles named `Rank | <Rank>`.
+
+Rules:
+- A member may have only one `Badge | ...` role at a time.
+- The selected badge must never exceed that member's highest XP-unlocked rank.
+- Changing `/equipbadge` should update both persisted equipment state and the native badge role when available.
+- Rank promotion must not overwrite a lower badge the member deliberately equipped.
+- If no equipment choice exists, default to the member's actual current rank.
+- Use the exact PNGs in `SideBot/assets/rank/badges/` for uploaded role icons.
+- Role icon payloads must be static 64x64 PNGs under 256 KB.
+- Never grant permissions to decorative badge roles.
+- Do not claim all role icons are visible beside a username; Discord shows only the highest icon-bearing role there.
+- If another higher role has an icon, it can override the SideBot badge.
+- Never require Administrator; Manage Roles is sufficient for setup/sync.
