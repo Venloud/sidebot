@@ -1587,7 +1587,7 @@ def render_custom_command(template, ctx, arguments):
 
 def custom_command_allowed(ctx, checks):
     for item in checks["require"]:
-        if item == "serverMod":
+        if item.casefold() == "servermod":
             if not ctx.author.guild_permissions.manage_guild:
                 return False
         elif item.startswith("#"):
@@ -1667,7 +1667,7 @@ async def handle_custom_trigger(message):
     try:
         if flags["dm"]:
             await message.author.send(rendered, allowed_mentions=nextcord.AllowedMentions.none())
-        elif rendered.strip() and not flags["silent"]:
+        elif rendered.strip():
             await destination.send(rendered, allowed_mentions=nextcord.AllowedMentions(users=True, roles=False, everyone=False))
     except nextcord.DiscordException as exc:
         print(f"Custom command {name} failed: {exc}")
