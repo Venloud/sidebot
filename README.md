@@ -41,3 +41,10 @@ SideBot awards 10 XP for an eligible server message, at most once per member eac
 Use `bot rank`, `bot rank @member`, `bot leaderboard`, `bot ranks`, or `bot setupranks` (Manage Roles permission). Prefix aliases `bobot` and `sidebot` work for command invocations as well as `bot` and `side bot`, for example `bobot rank` or `sidebot leaderboard`.
 
 XP data is stored locally in `SideBot/xp_scores.json` and saved through GitHub Actions cache. This is not durable storage: cache eviction, cancelled workflows, and interrupted jobs can lose scores. A database should replace the cache for production hosting.
+
+
+## Automatic code updates during a GitHub Actions run
+
+The workflow now launches `scripts/live_runner.py`. It checks the private repository's `main` branch every 60 seconds. When a new commit changes SideBot code, the supervisor validates the new Python syntax, stops the bot process, updates its checkout, and starts the bot again within the **same** Actions job. Non-code changes do not restart the bot. Changes to `requirements.txt` install dependencies before switching.
+
+This is **not zero downtime**: Python must restart to load new definitions and Discord briefly disconnects. The GitHub Actions job itself remains active. The existing running job will not gain this capability until the next job starts with the updated workflow. The standard six-hour GitHub runner limit, scheduled gaps, and limitations of Actions cache remain. In-memory values reset on bot restart, while saved JSON state on disk remains for the new process.
