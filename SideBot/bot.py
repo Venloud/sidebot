@@ -144,7 +144,7 @@ def is_invite_response(raw: str) -> bool:
 
 # ── Command-detection helper ───────────────────────────────────
 _REGISTERED_COMMANDS = {
-    "whoslive", "clean", "create", "create_role", "assign_role",
+    "whoslive", "clean", "dayone", "create", "create_role", "assign_role",
     "create_poll", "assign_poll_role", "invite", "send", "wipe",
     "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks",
 }
@@ -637,6 +637,8 @@ async def on_ready():
     add_event(f"Bot online as {bot.user.name}")
     if not check_live_status.is_running():
         check_live_status.start()
+    if not dayone_expiry_check.is_running():
+        dayone_expiry_check.start()
     for guild in bot.guilds:
         await ensure_rank_roles(guild)
 
@@ -1177,6 +1179,7 @@ async def list_commands(ctx):
         "clean": "Delete messages (Manage Messages required)",
         "create_role": "Create a Discord role (Manage Roles required)",
         "create": "Create channel, thread, role (with permission flags), poll, or event. Use bot create for syntax.",
+        "dayone": "Set up private day-one channel with temporary or permanent password access",
         "assign_role": "Assign a member role (Administrator required)",
         "whoslive": "Check monitored Twitch and TikTok accounts",
         "create_poll": "Post a poll (Manage Roles required)",
@@ -1885,6 +1888,176 @@ async def clean(ctx, amount: int = 50):
         return
     await ctx.channel.purge(limit=amount)
     await ctx.send(f"**{amount} mesaj yo efase.**", delete_after=5)
+
+# Day-one vault. Secrets are salted hashes; never print plaintext passwords.
+DAYONE_FILE = os.path.join(os.path.dirname(__file__), "dayone_access.json")
+DAYONE_ROLE = "day-one"
+DAYONE_DAY = 86400
+
+def dayone_load():
+    try:
+        with open(DAYONE_FILE, encoding="utf-8") as file:
+            return json.load(file)
+    except (OSError, ValueError):
+        return {}
+
+dayone_data = dayone_load()
+
+def dayone_save():
+    path = DAYONE_FILE + ".tmp"
+    with open(path, "w", encoding="utf-8") as file:
+        json.dump(dayone_data, file)
+    os.replace(path, DAYONE_FILE)
+
+def dayone_digest(secret, salt):
+    import hashlib
+    return hashlib.pbkdf2_hmac("sha256", secret.encode(), bytes.fromhex(salt), 260000).hex()
+
+def dayone_entry(guild_id):
+    return dayone_data.setdefault(str(guild_id), {"codes": {}, "expires": {}})
+
+
+@bot.group(name="dayone", invoke_without_command=True)
+async def dayone_group(ctx):
+    await ctx.send(
+        "**day-one access**\n"
+        "DM me: \`bot dayone verify SERVER_ID PASSWORD\`\n"
+        "Admins DM me: \`bot dayone set SERVER_ID permanent PASSWORD\` or "
+        "\`bot dayone set SERVER_ID temporary PASSWORD\`.\n"
+        "Admins in the server: \`bot dayone setup #secret-channel\`."
+    )
+
+
+@dayone_group.command(name="setup")
+@commands.has_permissions(manage_roles=True, manage_channels=True)
+@commands.bot_has_permissions(manage_roles=True, manage_channels=True)
+async def dayone_setup(ctx, channel: nextcord.TextChannel):
+    if not ctx.guild:
+        return
+    role = nextcord.utils.get(ctx.guild.roles, name=DAYONE_ROLE)
+    try:
+        if role is None:
+            role = await ctx.guild.create_role(
+                name=DAYONE_ROLE, permissions=nextcord.Permissions.none(),
+                reason="Day-one verified access")
+        await channel.set_permissions(ctx.guild.default_role, view_channel=False,
+                                      reason="Day-one private channel")
+        await channel.set_permissions(role, view_channel=True, read_message_history=True,
+                                      reason="Day-one verified access")
+        await ctx.send(f"Secured {channel.mention} for **day-one** members. Set a code via DM.")
+    except nextcord.DiscordException as exc:
+        await ctx.send(f"Setup failed: {exc}")
+
+
+@dayone_group.command(name="set")
+async def dayone_set(ctx, guild_id: int, kind: str, *, password: str):
+    if ctx.guild:
+        await ctx.message.delete() if ctx.channel.permissions_for(ctx.guild.me).manage_messages else None
+        await ctx.author.send("For security, set passwords only in my DMs.")
+        return
+    guild = bot.get_guild(guild_id)
+    if not guild:
+        await ctx.send("I am not connected to that server.")
+        return
+    member = guild.get_member(ctx.author.id)
+    if not member or not member.guild_permissions.administrator:
+        await ctx.send("Server Administrator permission required.")
+        return
+    kind = kind.lower()
+    if kind not in ("permanent", "temporary") or not 8 <= len(password) <= 128:
+        await ctx.send("Use permanent or temporary, with a password between 8 and 128 characters.")
+        return
+    import secrets
+    import time
+    salt = secrets.token_hex(16)
+    entry = dayone_entry(guild.id)
+    entry["codes"][kind] = {
+        "salt": salt,
+        "digest": dayone_digest(password, salt),
+        "until": time.time() + DAYONE_DAY if kind == "temporary" else None,
+    }
+    dayone_save()
+    await ctx.send(f"Set **{kind}** code for {guild.name}. "
+                   + ("Expires in 24 hours." if kind == "temporary" else "Valid until replaced."))
+
+
+@dayone_group.command(name="verify")
+@commands.cooldown(4, 600, commands.BucketType.user)
+async def dayone_verify(ctx, guild_id: int, *, password: str):
+    if ctx.guild:
+        try:
+            await ctx.message.delete()
+        except nextcord.DiscordException:
+            pass
+        try:
+            await ctx.author.send("Please verify privately using \`bot dayone verify SERVER_ID PASSWORD\`.")
+        except nextcord.DiscordException:
+            pass
+        return
+    import time
+    guild = bot.get_guild(guild_id)
+    member = guild.get_member(ctx.author.id) if guild else None
+    entry = dayone_data.get(str(guild_id))
+    if not member or not entry:
+        await ctx.send("Server or access code not found.")
+        return
+    matched = None
+    for kind, code in entry.get("codes", {}).items():
+        if kind == "temporary" and time.time() > code.get("until", 0):
+            continue
+        if hmac.compare_digest(dayone_digest(password, code["salt"]), code["digest"]):
+            matched = kind
+            break
+    if matched is None:
+        await ctx.send("Invalid or expired password.")
+        return
+    role = nextcord.utils.get(guild.roles, name=DAYONE_ROLE)
+    if not role or role >= guild.me.top_role:
+        await ctx.send("Access role is missing or too high in role hierarchy. Ask an admin.")
+        return
+    try:
+        await member.add_roles(role, reason=f"Day-one {matched} code verified")
+    except nextcord.DiscordException as exc:
+        await ctx.send(f"Couldn't grant access: {exc}")
+        return
+    if matched == "permanent":
+        entry.setdefault("expires", {}).pop(str(member.id), None)
+        await ctx.send(f"Verified! **day-one** access granted in {guild.name}.")
+    else:
+        # A previously permanent grant must not be downgraded by a temporary code.
+        if str(member.id) not in entry.setdefault("permanent_users", []):
+            entry.setdefault("expires", {})[str(member.id)] = time.time() + DAYONE_DAY
+        await ctx.send(f"Verified! **day-one** access granted in {guild.name} for 24 hours.")
+    if matched == "permanent" and str(member.id) not in entry.setdefault("permanent_users", []):
+        entry["permanent_users"].append(str(member.id))
+    dayone_save()
+
+
+@tasks.loop(minutes=5)
+async def dayone_expiry_check():
+    import time
+    dirty = False
+    now = time.time()
+    for guild_id, entry in list(dayone_data.items()):
+        guild = bot.get_guild(int(guild_id))
+        if not guild:
+            continue
+        role = nextcord.utils.get(guild.roles, name=DAYONE_ROLE)
+        for user_id, deadline in list(entry.get("expires", {}).items()):
+            if deadline > now:
+                continue
+            member = guild.get_member(int(user_id))
+            if role and member and role in member.roles:
+                try:
+                    await member.remove_roles(role, reason="24-hour day-one access expired")
+                except nextcord.DiscordException as exc:
+                    print(f"day-one expiry failed for {user_id}: {exc}")
+                    continue
+            del entry["expires"][user_id]
+            dirty = True
+    if dirty:
+        dayone_save()
+
 
 @bot.group(name="create", invoke_without_command=True)
 async def create_group(ctx):
