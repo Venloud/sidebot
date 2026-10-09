@@ -146,7 +146,7 @@ def is_invite_response(raw: str) -> bool:
 _REGISTERED_COMMANDS = {
     "whoslive", "clean", "create_role", "assign_role",
     "create_poll", "assign_poll_role", "invite", "send", "wipe",
-    "join", "leave",
+    "join", "leave", "rank", "leaderboard", "top", "ranks", "setupranks",
 }
 _INLINE_COMMANDS = {"kiye la"}  # handled inline in on_message, not via @bot.command
 
@@ -1048,12 +1048,162 @@ def social_query(message):
     return f"{member.mention}'s {platform.title()}: {url}" if url else f"No {platform.title()} link saved for {member.mention} yet."
 
 
+# XP is server-specific. Only normal messages count, with a cooldown.
+XP_FILE = os.path.join(os.path.dirname(__file__), "xp_scores.json")
+XP_RANKS = (
+    ("Rookie", 0, 0x95A5A6),
+    ("Bronze", 100, 0xCD7F32),
+    ("Silver", 350, 0xBCC6CC),
+    ("Gold", 800, 0xFFD700),
+    ("Platinum", 1600, 0x40E0D0),
+    ("Diamond", 3000, 0x3498DB),
+    ("Master", 5500, 0x9B59B6),
+    ("Legend", 10000, 0xE74C3C),
+)
+XP_COOLDOWN_SECONDS = 60
+XP_PER_MESSAGE = 10
+xp_mutex = threading.Lock()
+xp_last_award = {}
+
+
+def load_xp_scores():
+    try:
+        with open(XP_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+xp_scores = load_xp_scores()
+
+
+def save_xp_scores():
+    with xp_mutex:
+        temp = XP_FILE + ".tmp"
+        with open(temp, "w", encoding="utf-8") as f:
+            json.dump(xp_scores, f, ensure_ascii=False)
+        os.replace(temp, XP_FILE)
+
+
+def rank_for_xp(xp):
+    return max((r for r in XP_RANKS if xp >= r[1]), key=lambda r: r[1])
+
+
+async def ensure_rank_roles(guild):
+    """Create missing rank roles without changing existing role permissions."""
+    roles = {}
+    for name, threshold, color in XP_RANKS:
+        role_name = f"Rank | {name}"
+        role = nextcord.utils.get(guild.roles, name=role_name)
+        if role is None:
+            try:
+                role = await guild.create_role(
+                    name=role_name, colour=nextcord.Colour(color),
+                    permissions=nextcord.Permissions.none(),
+                    reason="SideBot activity rank",
+                )
+            except nextcord.DiscordException as exc:
+                print(f"Cannot create {role_name} in {guild.name}: {exc}")
+        if role:
+            roles[name] = role
+    return roles
+
+
+async def apply_rank_role(member, xp):
+    """Keep the earned rank, remove only SideBot rank roles."""
+    roles = await ensure_rank_roles(member.guild)
+    chosen = roles.get(rank_for_xp(xp)[0])
+    if not chosen:
+        return
+    known = set(roles.values())
+    remove = [role for role in member.roles if role in known and role != chosen]
+    try:
+        if remove:
+            await member.remove_roles(*remove, reason="SideBot rank updated")
+        if chosen not in member.roles:
+            await member.add_roles(chosen, reason="SideBot activity rank")
+    except nextcord.DiscordException as exc:
+        print(f"Could not update rank for {member.id}: {exc}")
+
+
+async def grant_message_xp(message):
+    if not message.guild or message.author.bot or not isinstance(message.author, nextcord.Member):
+        return
+    # Do not award points for commands, very short messages, or repeated spam.
+    content = message.content.strip()
+    if len(content) < 8 or content.startswith(("!", "/")) or content.lower().startswith(("bot ", "side bot ")):
+        return
+    from time import monotonic
+    key = (message.guild.id, message.author.id)
+    now = monotonic()
+    if now - xp_last_award.get(key, float("-inf")) < XP_COOLDOWN_SECONDS:
+        return
+    xp_last_award[key] = now
+    guild_data = xp_scores.setdefault(str(message.guild.id), {})
+    user_key = str(message.author.id)
+    previous = max(0, int(guild_data.get(user_key, 0)))
+    updated = previous + XP_PER_MESSAGE
+    guild_data[user_key] = updated
+    save_xp_scores()
+    if rank_for_xp(previous)[0] != rank_for_xp(updated)[0]:
+        await apply_rank_role(message.author, updated)
+        add_event(f"Rank up: {message.author.display_name} -> {rank_for_xp(updated)[0]}")
+
+
+@bot.command(name="rank")
+async def rank_command(ctx, member: nextcord.Member = None):
+    if not ctx.guild:
+        return
+    member = member or ctx.author
+    xp = max(0, int(xp_scores.get(str(ctx.guild.id), {}).get(str(member.id), 0)))
+    name, threshold, _ = rank_for_xp(xp)
+    next_rank = next((r for r in XP_RANKS if r[1] > xp), None)
+    progress = f"Next rank: {next_rank[0]} at {next_rank[1]} XP" if next_rank else "Maximum rank reached"
+    await ctx.send(f"**{member.display_name}** | Rank: **{name}** | **{xp} XP** | {progress}", allowed_mentions=nextcord.AllowedMentions.none())
+
+
+@bot.command(name="leaderboard", aliases=["top"])
+async def leaderboard_command(ctx):
+    if not ctx.guild:
+        return
+    scores = xp_scores.get(str(ctx.guild.id), {})
+    top = sorted(((uid, int(xp)) for uid, xp in scores.items()), key=lambda x: x[1], reverse=True)[:10]
+    if not top:
+        await ctx.send("No points earned in this server yet.")
+        return
+    lines = []
+    for position, (uid, xp) in enumerate(top, 1):
+        member = ctx.guild.get_member(int(uid))
+        label = member.display_name if member else f"Member {uid}"
+        lines.append(f"{position}. {nextcord.utils.escape_markdown(label)}: {xp} XP ({rank_for_xp(xp)[0]})")
+    await ctx.send("**SideBot Leaderboard**\n" + "\n".join(lines), allowed_mentions=nextcord.AllowedMentions.none())
+
+
+@bot.command(name="ranks")
+async def ranks_command(ctx):
+    if not ctx.guild:
+        return
+    await ctx.send("**SideBot Ranks**\n" + "\n".join(f"**{name}**: {xp} XP" for name, xp, _ in XP_RANKS))
+
+
+@bot.command(name="setupranks")
+@commands.has_permissions(manage_roles=True)
+async def setup_ranks_command(ctx):
+    if not ctx.guild:
+        return
+    roles = await ensure_rank_roles(ctx.guild)
+    # Existing members may have XP from before role creation.
+    await ctx.send(f"Configured {len(roles)}/{len(XP_RANKS)} rank roles. Use `bot rank` to view progress.")
+
+
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
 
     if message.guild:
+        await grant_message_xp(message)
         if message.channel.name.lower() in SOCIAL_CHANNEL_NAMES:
             links = extract_social_links(message.content)
             if links:
