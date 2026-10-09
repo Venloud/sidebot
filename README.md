@@ -53,3 +53,16 @@ This is **not zero downtime**: Python must restart to load new definitions and D
 ## Visual rank cards
 
 Use `bot rank` or `bot rank @member` (also `sidebot rank` and `bobot rank`). SideBot renders a PNG card featuring the member's Discord avatar, current rank, XP, server placement, and progress to the next tier. Pillow is installed via `requirements.txt`. On image-generation errors, it sends a readable text fallback.
+
+
+## Moderation and access roles
+
+SideBot moderation is permission-gated and respects Discord's role hierarchy. Available commands:
+
+- `bot create_access_role Members #private-channel` creates a role with no global powers and grants it View Channel and Read Message History for that channel. An administrator must separately hide the channel from `@everyone` to make it private.
+- `bot delete_role Role Name` deletes a non-administrative non-managed ordinary role, excluding SideBot rank roles.
+- `bot kick @member reason` kicks a member. Caller and bot require Kick Members permission.
+- `bot ban @member reason` bans a member without deleting message history. Caller and bot require Ban Members permission.
+- `bot unban USER_ID` unbans a user by Discord numeric ID.
+
+Moderation commands will not act on the server owner, administrators, members at or above the bot's highest role, or equal/higher-ranked members relative to a non-owner moderator. Assign the bot Manage Roles, Manage Channels, Kick Members, and Ban Members only when those features are needed. Avoid Administrator permission. Audit results in Discord's audit log. 
