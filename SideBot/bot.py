@@ -1681,15 +1681,49 @@ async def silent_command(ctx, mode: str = "on"):
     else:
         await ctx.send("Usage: 509 silent on | 509 silent off", delete_after=10)
 
+# Route content-commands to their proper destination, regardless of origin channel.
+# In particular, polls go to #polls and rank/profile output goes to #leaderboard.
+def sidebot_target_channel(guild, command_name):
+    if not guild:
+        return None
+    name = (command_name or "").casefold()
+    expected = ("polls" if name in ("poll", "create_poll") else
+                "leaderboard" if name in ("rank", "ranks", "leaderboard", "top", "profile") else None)
+    if not expected:
+        return None
+    return nextcord.utils.get(guild.text_channels, name=expected)
+
 @bot.event
 async def on_command(ctx):
-    # Remove invocations as soon as a recognized command begins.
+    # Delete the invocation even when typed in the wrong channel.
     if ctx.guild:
         try:
             await ctx.message.delete()
         except nextcord.DiscordException:
             pass
-    if ctx.author.id in silent_command_users and ctx.command.name != "silent":
+
+    name = ctx.command.name if ctx.command else ""
+    if ctx.command and ctx.command.qualified_name == "create poll":
+        name = "poll"
+    target = sidebot_target_channel(ctx.guild, name)
+    if target and target.id != ctx.channel.id:
+        perms = target.permissions_for(ctx.guild.me)
+        if perms.view_channel and perms.send_messages:
+            original_send = ctx.send
+            async def routed_send(*args, **kwargs):
+                # Sending to the destination rather than the invoking channel.
+                kwargs.pop("reference", None)
+                kwargs.pop("mention_author", None)
+                return await target.send(*args, **kwargs)
+            ctx.send = routed_send
+        else:
+            await ctx.send(f"SideBot cannot post in {target.mention}. Allow View Channel and Send Messages.")
+            return
+    # Silent mode is temporary for other commands; do not auto-delete a poll,
+    # rank card or leaderboard from its destination channel.
+    if ctx.author.id in silent_command_users and name not in (
+        "silent", "poll", "create_poll", "rank", "ranks", "leaderboard", "top", "profile"
+    ):
         original_send = ctx.send
         async def temporary_send(*args, **kwargs):
             kwargs.setdefault("delete_after", 10)
@@ -3483,7 +3517,7 @@ async def create_role_sub(ctx, *, details: str):
 @commands.bot_has_permissions(send_messages=True, add_reactions=True)
 async def create_poll_sub(ctx, *, options: str):
     """Example: bot create poll Messi | Ronaldo | X"""
-    names = [item.strip() for item in options.split("|")]
+    names = [item.strip() for item in re.split(r"[|,]", options)]
     if not 2 <= len(names) <= 9 or any(not n or len(n) > 90 for n in names):
         await ctx.send("Enter 2 to 9 options separated by \`|\`. Example: \`bot create poll Messi | Ronaldo | X\`")
         return
