@@ -144,7 +144,7 @@ def is_invite_response(raw: str) -> bool:
 
 # ── Command-detection helper ───────────────────────────────────
 _REGISTERED_COMMANDS = {
-    "whoslive", "clean", "clear", "silent", "links", "anime", "movies", "football", "manga", "music", "clips", "games", "dayone", "create", "create_role", "assign_role",
+    "whoslive", "clean", "clear", "silent", "custom", "links", "anime", "movies", "football", "manga", "music", "clips", "games", "dayone", "create", "create_role", "assign_role",
     "create_poll", "assign_poll_role", "invite", "send", "wipe",
     "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks",
 }
@@ -1487,6 +1487,192 @@ async def on_command(ctx):
             return await original_send(*args, **kwargs)
         ctx.send = temporary_send
 
+
+# Restricted Dyno-style custom command templates. No eval or arbitrary {!command}.
+CUSTOM_COMMANDS_FILE = os.path.join(os.path.dirname(__file__), "custom_commands.json")
+def load_custom_commands():
+    try:
+        with open(CUSTOM_COMMANDS_FILE, encoding="utf-8") as handle:
+            value = json.load(handle)
+        return value.get("commands", {}) if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+custom_commands = load_custom_commands()
+
+def save_custom_commands():
+    path = CUSTOM_COMMANDS_FILE + ".tmp"
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"commands": custom_commands}, handle, ensure_ascii=False, indent=2)
+    os.replace(path, CUSTOM_COMMANDS_FILE)
+
+def render_custom_command(template, ctx, arguments):
+    import secrets
+    from datetime import timezone
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo("America/New_York"))
+    member = ctx.author
+    guild = ctx.guild
+    channel = ctx.channel
+    xp = xp_scores.get(str(guild.id), {}).get(str(member.id), 0)
+    xp = max(0, int(xp))
+    rank = rank_for_xp(xp)[0]
+    avatar = str(member.display_avatar.url)
+    def date_str(date):
+        return date.strftime("%Y-%m-%d") if date else "Unknown"
+    variables = {
+        "user": member.mention, "username": member.name,
+        "avatar": avatar, "server": guild.name, "channel": channel.name,
+        "user.id": str(member.id), "user.name": str(member),
+        "user.username": member.name, "user.discriminator": str(getattr(member, "discriminator", "0")),
+        "user.discrim": str(getattr(member, "discriminator", "0")),
+        "user.nick": member.display_name, "user.avatar": avatar,
+        "user.mention": member.mention,
+        "user.createdAt": date_str(member.created_at),
+        "user.joinedAt": date_str(getattr(member, "joined_at", None)),
+        "user.level": rank, "user.xp": str(xp),
+        "user.short_xp": f"{xp / 1000:.1f}K" if xp >= 1000 else str(xp),
+        "server.id": str(guild.id), "server.name": guild.name,
+        "server.icon": str(guild.icon.url) if guild.icon else "",
+        "server.memberCount": str(guild.member_count or len(guild.members)),
+        "server.ownerID": str(guild.owner_id),
+        "server.createdAt": date_str(guild.created_at),
+        "channel.id": str(channel.id), "channel.name": channel.name,
+        "channel.mention": channel.mention,
+        "time": now.strftime("%H:%M"), "time12": now.strftime("%I:%M %p"),
+        "date": now.strftime("%Y-%m-%d"), "datetime": now.strftime("%Y-%m-%d %H:%M"),
+        "datetime12": now.strftime("%Y-%m-%d %I:%M %p"),
+        "prefix": "509 ",
+    }
+    flags = {"delete": False, "silent": False, "dm": False, "noeveryone": False}
+    checks = {"require": [], "not": []}
+    target_channel = None
+    def replacement(match):
+        nonlocal target_channel
+        key = match.group(1).strip()
+        low = key.casefold()
+        if low in flags:
+            flags[low] = True
+            return ""
+        if low.startswith("require:") or low.startswith("not:"):
+            kind, value = key.split(":", 1)
+            checks[kind.casefold()].append(value.strip())
+            return ""
+        if low.startswith("respond:#"):
+            target_channel = key.split("#", 1)[1].strip()
+            return ""
+        if low.startswith("choose:"):
+            variants = key[7:].split(";")
+            return secrets.choice(variants) if variants else ""
+        if key.startswith("&"):
+            role = nextcord.utils.get(guild.roles, name=key[1:])
+            return role.mention if role else ""
+        if key.startswith("#"):
+            destination = nextcord.utils.get(guild.text_channels, name=key[1:])
+            return destination.mention if destination else ""
+        # Never permit automatic server-wide mentions in user-authored custom commands.
+        if low in ("everyone", "here"):
+            return ""
+        return variables.get(key, match.group(0))
+    rendered = re.sub(r"\{([^{}\n]{1,150})\}", replacement, template)
+    rendered = rendered.replace("{choice}", "")
+    def arg_replace(match):
+        start = int(match.group(1))
+        if start < 1:
+            return ""
+        return (" ".join(arguments[start-1:]) if match.group(2) else
+                arguments[start-1] if len(arguments) >= start else "")
+    rendered = re.sub(r"\$(\d+)(\+?)", arg_replace, rendered)
+    return rendered[:1950], flags, checks, target_channel
+
+def custom_command_allowed(ctx, checks):
+    for item in checks["require"]:
+        if item == "serverMod":
+            if not ctx.author.guild_permissions.manage_guild:
+                return False
+        elif item.startswith("#"):
+            if ctx.channel.name.casefold() != item[1:].casefold():
+                return False
+        elif not any(role.name.casefold() == item.casefold() for role in ctx.author.roles):
+            return False
+    for item in checks["not"]:
+        if item.startswith("#") and ctx.channel.name.casefold() == item[1:].casefold():
+            return False
+        if not item.startswith("#") and any(role.name.casefold() == item.casefold() for role in ctx.author.roles):
+            return False
+    return True
+
+@bot.group(name="custom", invoke_without_command=True)
+async def custom_group(ctx):
+    await ctx.send("Custom commands: 509 custom list | 509 custom add NAME | RESPONSE | 509 custom remove NAME")
+
+@custom_group.command(name="list")
+async def custom_list(ctx):
+    names = sorted(custom_commands.get(str(ctx.guild.id), {}))
+    await ctx.send("Custom triggers: " + (", ".join(names) if names else "(none)"))
+
+@custom_group.command(name="add")
+@commands.has_permissions(manage_guild=True)
+async def custom_add(ctx, *, specification: str):
+    parts = specification.split("|", 1)
+    if len(parts) != 2:
+        await ctx.send("Usage: 509 custom add NAME | Your response with {user} and $1")
+        return
+    name, template = parts[0].strip().casefold(), parts[1].strip()
+    if not re.fullmatch(r"[a-z0-9_-]{2,32}", name) or not 1 <= len(template) <= 1900:
+        await ctx.send("Use a 2-32 character name and a response under 1900 characters.")
+        return
+    if name in _REGISTERED_COMMANDS or name in ("509website", "custom") or bot.get_command(name):
+        await ctx.send("This name is reserved by a built-in command.")
+        return
+    # Privileged operations must be implemented with permission-checked Python commands.
+    if "{!" in template or "{dm:" in template:
+        await ctx.send("Executable commands and DMing other users aren't supported.")
+        return
+    custom_commands.setdefault(str(ctx.guild.id), {})[name] = template
+    save_custom_commands()
+    await ctx.send(f"Configured custom trigger: 509 {name}")
+
+@custom_group.command(name="remove")
+@commands.has_permissions(manage_guild=True)
+async def custom_remove(ctx, name: str):
+    removed = custom_commands.setdefault(str(ctx.guild.id), {}).pop(name.casefold(), None)
+    save_custom_commands()
+    await ctx.send("Removed." if removed is not None else "Not found.")
+
+async def handle_custom_trigger(message):
+    if not message.guild:
+        return False
+    text = message.content.strip()
+    found = re.match(r"^(?:509|bot|sidebot|bobot|side bot)\s+([a-z0-9_-]+)(?:\s+(.*))?$", text, flags=re.I | re.S)
+    if not found:
+        return False
+    name = found.group(1).casefold()
+    template = custom_commands.get(str(message.guild.id), {}).get(name)
+    if not template or bot.get_command(name):
+        return False
+    ctx = await bot.get_context(message)
+    arguments = (found.group(2) or "").split()
+    rendered, flags, checks, target_name = render_custom_command(template, ctx, arguments)
+    if not custom_command_allowed(ctx, checks):
+        return True
+    if flags["delete"]:
+        try:
+            await message.delete()
+        except nextcord.DiscordException:
+            pass
+    destination = nextcord.utils.get(message.guild.text_channels, name=target_name) if target_name else message.channel
+    if destination is None:
+        return True
+    try:
+        if flags["dm"]:
+            await message.author.send(rendered, allowed_mentions=nextcord.AllowedMentions.none())
+        elif rendered.strip() and not flags["silent"]:
+            await destination.send(rendered, allowed_mentions=nextcord.AllowedMentions(users=True, roles=False, everyone=False))
+    except nextcord.DiscordException as exc:
+        print(f"Custom command {name} failed: {exc}")
+    return True
+
 @bot.command(name="list")
 async def list_commands(ctx):
     """Show all registered SideBot commands and supported chat triggers."""
@@ -1494,6 +1680,7 @@ async def list_commands(ctx):
         "rank": "View your XP and rank, optionally mention a member",
         "links": "Resource directory; moderators can set or remove URLs",
         "silent": "Turn short-lived command replies on or off: 509 silent on/off",
+        "custom": "Manage Dyno-style custom command templates",
         "anime": "Anime website",
         "movies": "Movies and TV website",
         "football": "Football and live sports website",
@@ -1783,6 +1970,9 @@ def contains_discord_server_invite(text):
 @bot.event
 async def on_message(message):
     if message.author.bot:
+        return
+
+    if message.guild and await handle_custom_trigger(message):
         return
 
     if message.guild and message.content.strip().casefold() == "509website":
