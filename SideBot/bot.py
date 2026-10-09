@@ -1242,49 +1242,114 @@ async def role_permissions_command(ctx, *, role_name: str = ""):
 
 
 def draw_rank_card(display_name, avatar_bytes, xp, placement):
-    """Generate a Discord-ready ranking card without writing files to disk."""
+    """Render a personalized card inspired by the blue, red and silver 509 crest."""
     from io import BytesIO
-    from PIL import Image, ImageDraw, ImageFont, ImageOps
-    width, height = 950, 310
-    image = Image.new("RGB", (width, height), (14, 18, 32))
-    draw = ImageDraw.Draw(image)
-    name, floor, color = rank_for_xp(xp)
-    next_rank = next((entry for entry in XP_RANKS if entry[1] > xp), None)
-    accent = ((color >> 16) & 255, (color >> 8) & 255, color & 255)
-    draw.rounded_rectangle((18, 18, width - 18, height - 18), radius=28, fill=(26, 32, 52), outline=accent, width=3)
-    draw.rounded_rectangle((206, 34, 916, 87), radius=14, fill=(37, 44, 68))
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter
+    import math
+
+    W, H = 1050, 350
+    img = Image.new("RGB", (W, H), (2, 8, 22))
+    d = ImageDraw.Draw(img)
+    name, floor, _ = rank_for_xp(xp)
+    number = next(i for i, entry in enumerate(XP_RANKS, 1) if entry[0] == name)
+    following = next((r for r in XP_RANKS if r[1] > xp), None)
+    blue, red, white = (0, 112, 255), (248, 34, 61), (241, 247, 255)
     regular = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     heavy = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
     def font(size, bold=False):
         try:
             return ImageFont.truetype(heavy if bold else regular, size)
         except OSError:
             return ImageFont.load_default()
-    draw.text((228, 45), display_name[:29], font=font(30, True), fill="white")
-    draw.text((210, 105), "RANK", font=font(16, True), fill=(168, 177, 203))
-    draw.text((210, 127), name.upper(), font=font(34, True), fill=accent)
-    draw.text((675, 108), f"#{placement} SERVER", font=font(19, True), fill=(220, 225, 238))
-    draw.text((210, 192), f"{xp:,} XP", font=font(21, True), fill="white")
-    draw.rounded_rectangle((210, 235, 916, 259), radius=12, fill=(65, 73, 97))
-    if next_rank:
-        progress = max(0.0, min(1.0, (xp - floor) / (next_rank[1] - floor)))
-        fill_width = int(706 * progress)
-        if fill_width:
-            draw.rounded_rectangle((210, 235, 210 + fill_width, 259), radius=min(12, fill_width // 2), fill=accent)
-        draw.text((595, 194), f"Next: {next_rank[0]} ({next_rank[1]:,} XP)", font=font(16), fill=(180, 188, 211))
-    else:
-        draw.rounded_rectangle((210, 235, 916, 259), radius=12, fill=accent)
-        draw.text((610, 194), "MAX RANK UNLOCKED", font=font(16, True), fill=accent)
+
+    # Dramatic split lighting and subtle digital streaks, matching the 509 artwork.
+    for x in range(W):
+        t = x / (W - 1)
+        d.line((x, 0, x, H), fill=(int(4 + 17*t), int(10 + 2*(1-t)), int(28 - 14*t)))
+    glow = Image.new("RGBA", (W, H))
+    gd = ImageDraw.Draw(glow)
+    for i in range(16):
+        gd.line((-40, 310-i*16, 510, 110-i*7), fill=(10, 86+i*6, 255, 25), width=5)
+        gd.line((570, 95-i*7, 1100, 310-i*16), fill=(255, 22+i*3, 48, 25), width=5)
+    glow = glow.filter(ImageFilter.GaussianBlur(9))
+    img = Image.alpha_composite(img.convert("RGBA"), glow)
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((12, 12, W-13, H-13), radius=19, outline=(56, 83, 133), width=3)
+    d.line((20, 19, 490, 19), fill=blue, width=5)
+    d.line((565, 19, W-20, 19), fill=red, width=5)
+    d.line((20, H-18, 490, H-18), fill=blue, width=4)
+    d.line((565, H-18, W-20, H-18), fill=red, width=4)
+    # Decorative fortress and palms as subtle silhouettes above the stats area.
+    for px in (610, 665, 810, 865):
+        d.line((px, 119, px, 43), fill=(12, 33, 66), width=7)
+        for delta in (-42, -25, 25, 42):
+            d.arc((px+delta-42, 38, px+delta+42, 106), 200, 320, fill=(14, 36, 72), width=3)
+    d.polygon([(690, 110), (690, 53), (728, 53), (728, 36), (760, 36),
+               (760, 53), (801, 53), (801, 108)], fill=(16, 32, 56))
+    # Haitian flag motif and section header.
+    d.rectangle((790, 35, 826, 46), fill=(20, 73, 228))
+    d.rectangle((790, 46, 826, 57), fill=(213, 27, 54))
+    d.rectangle((801, 41, 814, 50), fill=white)
+    d.text((843, 34), "THE 509", font=font(18, True), fill=(171, 191, 221))
+
+    # Avatar with a neon bevel border.
+    d.rounded_rectangle((32, 63, 223, 254), radius=20, fill=(2, 25, 65), outline=blue, width=5)
     try:
-        avatar = Image.open(BytesIO(avatar_bytes)).convert("RGB").resize((150, 150))
-        mask = Image.new("L", (150, 150), 0)
-        ImageDraw.Draw(mask).ellipse((0, 0, 149, 149), fill=255)
-        image.paste(avatar, (39, 76), mask)
+        ava = Image.open(BytesIO(avatar_bytes)).convert("RGB").resize((175, 175))
+        mask = Image.new("L", (175, 175), 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, 174, 174), radius=16, fill=255)
+        img.paste(ava, (40, 71), mask)
     except (OSError, ValueError, TypeError):
-        draw.ellipse((39, 76, 189, 226), fill=accent)
-        draw.text((85, 125), "?", font=font(42, True), fill="white")
+        d.text((107, 131), "?", fill=white, font=font(51, True))
+    d = ImageDraw.Draw(img)
+    d.text((252, 49), display_name[:23], fill=white, font=font(31, True))
+    d.text((967, 51), f"#{placement}", fill=white, font=font(32, True), anchor="ra")
+
+    # Each level gets its own crowned metallic shield badge.
+    bx, by = 301, 174
+    level_shades = [
+        (118, 128, 153), (155, 179, 210), (46, 208, 222),
+        (16, 113, 255), (154, 82, 255), (244, 189, 63),
+        (76, 192, 255), (255, 49, 75)
+    ]
+    shade = level_shades[number - 1]
+    outline = [(bx, by-56), (bx+48, by-32), (bx+43, by+23),
+               (bx, by+55), (bx-43, by+23), (bx-48, by-32)]
+    d.polygon(outline, fill=(8, 16, 37))
+    d.line(outline + [outline[0]], fill=shade, width=7, joint="curve")
+    inner = [(bx, by-40), (bx+31, by-23), (bx+27, by+15),
+             (bx, by+36), (bx-27, by+15), (bx-31, by-23)]
+    d.polygon(inner, fill=(23, 39, 70))
+    d.text((bx, by-16), str(number), font=font(38, True), fill=white, anchor="mm")
+    if number >= 5:
+        crowns = [(bx-27, by-63), (bx-18, by-77), (bx-4, by-65),
+                  (bx, by-85), (bx+10, by-65), (bx+25, by-78), (bx+31, by-61)]
+        d.polygon(crowns, fill=shade)
+    d.text((370, 119), "RANK", fill=(151, 168, 199), font=font(20, True))
+    d.text((370, 149), name.upper(), fill=white, font=font(29 if len(name)<14 else 23, True))
+
+    # XP bar and numerical progression.
+    d.text((710, 119), "XP", fill=(79, 165, 255), font=font(19, True))
+    denom = following[1] if following else xp
+    d.text((710, 146), f"{xp:,} / {denom:,}" if following else f"{xp:,} / MAX",
+           fill=white, font=font(19, True))
+    left, top, right, bottom = 710, 186, 988, 211
+    d.rounded_rectangle((left, top, right, bottom), radius=12, fill=(44, 56, 81))
+    ratio = min(1, max(0, (xp-floor)/(following[1]-floor))) if following else 1
+    filled = int((right-left)*ratio)
+    if filled:
+        d.rounded_rectangle((left, top, left+filled, bottom), radius=min(12,filled//2), fill=red if number==8 else blue)
+    d.text((988, 220), f"{ratio*100:.0f}%", fill=(221, 229, 243), font=font(15, True), anchor="ra")
+
+    # Footer metadata, no fabricated message count or joining date.
+    d.line((33, 282, W-33, 282), fill=(53, 67, 98), width=2)
+    d.text((44, 297), f"SERVER RANK  #{placement}", fill=white, font=font(19, True))
+    d.text((390, 297), f"{xp:,} TOTAL XP", fill=(154, 181, 225), font=font(19, True))
+    d.text((755, 297), f"NEXT: {following[0].upper()}" if following else "HIMOTHY UNLOCKED",
+           fill=(255, 139, 151), font=font(17, True))
     output = BytesIO()
-    image.save(output, format="PNG")
+    img.convert("RGB").save(output, format="PNG")
     output.seek(0)
     return output
 
