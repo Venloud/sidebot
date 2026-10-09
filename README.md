@@ -189,3 +189,27 @@ Equipped selections are persisted in `SideBot/equipped_rank_badges.json`.
 ## Command output channel routing
 
 Prefix commands can be invoked from any text channel. SideBot attempts to delete the invoking message (requires Manage Messages), then sends the result to the designated channel. `509 create poll cold shower,hott shower` or `bot create poll cold shower | hott shower` posts a poll with numbered reactions to `#polls`. `509 rank`, `bot rank`, `509 leaderboard`, `509 top`, and `509 ranks` send output to `#leaderboard`. Destination channels must exist and allow SideBot to view/post messages; failures are not silently redirected to the wrong channel. This behavior applies to **prefix text commands**; slash command routing is separate. Normal posts in `#polls` / `#leaderboard` should not be erased by the silent-mode response timer. Additional commands can be assigned destinations later.
+
+
+## Native Discord rank icons
+
+SideBot can mirror a member's equipped 509 rank badge into Discord itself by using dedicated decorative roles with uploaded role icons.
+
+Admin setup:
+
+`509 rankicons setup`
+
+This creates/refreshed roles named `Badge | NPC` through `Badge | Himothy` using the exact 509 rank PNGs already stored in `SideBot/assets/rank/badges/`, then syncs each member's currently equipped badge.
+
+Members keep using:
+
+- `/equipbadge`
+- `509 equipbadge NUMBER`
+
+When native role icons are available, SideBot assigns exactly one `Badge | ...` role matching that member's equipped unlocked badge. Their real XP rank remains separate in the normal `Rank | ...` role.
+
+Discord currently requires **Server Boost Level 2** for custom role icons. Without that perk, SideBot profile/rank-card badges still work normally.
+
+Discord displays only one role icon beside a username in chat/member lists: the icon from the member's highest role that has an icon. If another higher role has its own icon, it can override the SideBot badge. Keep SideBot's `Badge | ...` roles above ordinary icon-bearing member roles (but below SideBot/admin roles) if you want the equipped 509 badge to win consistently.
+
+The uploaded icons are static 64x64 PNGs and stay under Discord's 256 KB role-icon limit.
