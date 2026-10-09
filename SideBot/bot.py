@@ -1706,6 +1706,10 @@ async def on_command(ctx):
     if ctx.command and ctx.command.qualified_name == "create poll":
         name = "poll"
     target = sidebot_target_channel(ctx.guild, name)
+    if ctx.guild and name in ("poll", "create_poll", "rank", "ranks", "leaderboard", "top", "profile") and target is None:
+        required = "#polls" if name in ("poll", "create_poll") else "#leaderboard"
+        await ctx.send(f"Cannot run this here: the destination channel {required} does not exist.")
+        raise commands.CheckFailure(f"Destination channel {required} missing")
     if target and target.id != ctx.channel.id:
         perms = target.permissions_for(ctx.guild.me)
         if perms.view_channel and perms.send_messages:
@@ -1718,7 +1722,7 @@ async def on_command(ctx):
             ctx.send = routed_send
         else:
             await ctx.send(f"SideBot cannot post in {target.mention}. Allow View Channel and Send Messages.")
-            return
+            raise commands.CheckFailure("Cannot post in destination channel")
     # Silent mode is temporary for other commands; do not auto-delete a poll,
     # rank card or leaderboard from its destination channel.
     if ctx.author.id in silent_command_users and name not in (
