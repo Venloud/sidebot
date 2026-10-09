@@ -32,3 +32,12 @@ Create a text channel named `notifications`, `notification`, or `live-notificati
 **YouTube setup:** Enable YouTube Data API v3 in Google Cloud, then add the `YOUTUBE_API_KEY` repository secret under GitHub Actions. The bot uses official `channels.list` handle resolution and `search.list?eventType=live`; YouTube search calls have a daily quota, so many tracked channels can exceed it. If the API key is missing, YouTube notifications are skipped, without affecting Twitch or TikTok. Channel URLs using `/@handle` and `/channel/UC...` are supported.
 
 **Caveats:** Live notifications start after new links are posted, historical channel messages are not automatically imported. GitHub Actions runners are intermittent; checks and notifications do not run when the runner is stopped, and cache eviction can lose saved profiles and alert state. TikTok web detection is unofficial and may be affected by site changes.
+
+
+## XP ranks and commands
+
+SideBot awards 10 XP for an eligible server message, at most once per member each 60 seconds. Commands, bots, and very short messages do not earn points. Rank roles are automatically created on bot startup if SideBot has Manage Roles permission: Rank | Rookie (0), Bronze (100), Silver (350), Gold (800), Platinum (1600), Diamond (3000), Master (5500), Legend (10000). The bot changes only SideBot rank roles on promotions.
+
+Use `bot rank`, `bot rank @member`, `bot leaderboard`, `bot ranks`, or `bot setupranks` (Manage Roles permission). Prefix aliases `bobot` and `sidebot` work for command invocations as well as `bot` and `side bot`, for example `bobot rank` or `sidebot leaderboard`.
+
+XP data is stored locally in `SideBot/xp_scores.json` and saved through GitHub Actions cache. This is not durable storage: cache eviction, cancelled workflows, and interrupted jobs can lose scores. A database should replace the cache for production hosting.
