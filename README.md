@@ -127,3 +127,20 @@ Default configured entries: `movies` points to FMHY video streaming aggregators;
 ## 509 prefix and quiet commands
 
 Use `509` as a full command prefix, for example `509 rank`, `509 links`, or `509 create poll Messi | Ronaldo | X`. Existing prefixes remain in place. SideBot tries to delete recognized command invocation messages immediately after execution starts, where it has Manage Messages permission. Users can turn on short-lived replies using `509 silent on`, and turn them off with `509 silent off`. Standard responses sent through `ctx.send` are removed after 10 seconds when silent mode is on. This is **not private or ephemeral** and some commands send directly to channels or produce files, so their messages may remain. Silent preferences reset when the bot restarts. 
+
+## Dyno-style custom commands and variables
+
+Manage Server users can configure a guild-specific response through `509 custom add NAME | RESPONSE`, view definitions with `509 custom list`, and remove one with `509 custom remove NAME`. Members trigger it using `509 NAME`, `bot NAME`, `sidebot NAME`, or `bobot NAME`. Example:
+
+```text
+509 custom add welcome | {delete} Welcome {user} to {server}! Use {#509-chat}.
+509 welcome
+```
+
+Supported templates: `{user}`, `{username}`, `{avatar}`, `{server}`, `{channel}`, user ID/name/discriminator/nick/avatar/mention/createdAt/joinedAt/level/xp/short_xp, server ID/name/icon/memberCount/ownerID/createdAt, channel ID/name/mention, `{time}`, `{time12}`, `{date}`, `{datetime}`, `{datetime12}`, `{prefix}`, role and channel references `{&Role Name}` / `{#channel-name}`, `$1`, `$2+`, `{choose:one;two}`, `{delete}`, `{silent}`, `{noeveryone}`, `{require:Role Name}`, `{require:serverMod}`, `{require:#channel}`, `{not:Role Name}`, `{not:#channel}`, `{respond:#channel}`, and `{dm}`.
+
+The `{silent}` token hides no user-facing custom response on its own, but suppresses Dyno-style internal/default response behavior; this implementation has no extra default response. It does not suppress a template's normal output.
+
+**Restrictions:** `{!command}` (privileged command execution), `{dm:user}` (DM others), `{everyone}`, and `{here}` mass mentions are disabled for safety. `{user.coins}`, `{user.short_coins}`, `{user.streak}`, and the removed Discord regional server property are not implemented because those data sources aren't present. The level variable currently displays the named SideBot rank, not a numeric Tatsu level. Admin commands cannot be shadowed by custom triggers. Discord messages use safe allowed mentions.
+
+Definitions are stored in `SideBot/custom_commands.json` with normal GitHub Actions cache restoration. They have not been live-tested. Never store credentials or passwords in commands.
