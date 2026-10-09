@@ -2398,13 +2398,17 @@ async def rank_role_monitor():
             roles = await ensure_rank_roles(guild)
             if len(roles) != len(XP_RANKS):
                 continue
+            badge_roles = existing_rank_badge_roles(guild)
             for user_id, earned in list(xp_scores.get(str(guild.id), {}).items()):
                 member = guild.get_member(int(user_id))
                 if member and not member.bot:
-                    expected = roles.get(rank_for_xp(max(0, int(earned)))[0])
+                    earned_xp = max(0, int(earned))
+                    expected = roles.get(rank_for_xp(earned_xp)[0])
                     existing = [role for role in member.roles if role in roles.values()]
                     if expected and (expected not in existing or len(existing) != 1):
-                        await apply_rank_role(member, max(0, int(earned)))
+                        await apply_rank_role(member, earned_xp)
+                    elif badge_roles:
+                        await sync_member_rank_badge_role(member, earned_xp, badge_roles)
         except (nextcord.DiscordException, ValueError, TypeError) as exc:
             print(f"Rank role monitor error in {guild.name}: {exc}")
 
@@ -2422,6 +2426,56 @@ async def setup_ranks_command(ctx):
     roles = await ensure_rank_roles(ctx.guild)
     # Existing members may have XP from before role creation.
     await ctx.send(f"Configured {len(roles)}/{len(XP_RANKS)} rank roles. Use `bot rank` to view progress.")
+
+
+@bot.group(name="rankicons", invoke_without_command=True)
+async def rank_icons_group(ctx):
+    """Show native Discord rank-icon status."""
+    if not ctx.guild:
+        return
+    roles = existing_rank_badge_roles(ctx.guild)
+    enabled = guild_supports_role_icons(ctx.guild)
+    icon_count = sum(1 for role in roles.values() if role.icon)
+    await ctx.send(
+        "**509 Native Rank Icons**\n"
+        f"Discord role-icon support: **{'Yes' if enabled else 'No'}**\n"
+        f"Boost tier: **{getattr(ctx.guild, 'premium_tier', 0)}**\n"
+        f"Badge roles: **{len(roles)}/8** | icons set: **{icon_count}/8**\n"
+        "Members use `/equipbadge` or `509 equipbadge NUMBER`.\n"
+        "Admins: `509 rankicons setup` to create/refresh the 8 native icon roles.\n"
+        "Discord only shows one role icon beside a username: the highest role that has an icon."
+    )
+
+
+@rank_icons_group.command(name="setup", aliases=["sync", "refresh"])
+@commands.has_permissions(manage_roles=True)
+@commands.bot_has_permissions(manage_roles=True)
+async def rank_icons_setup(ctx):
+    """Create/refresh the exact 509 badge roles and sync member selections."""
+    if not ctx.guild:
+        return
+    if not guild_supports_role_icons(ctx.guild):
+        await ctx.send(
+            "❌ This server does not currently have Discord role icons. "
+            "Discord requires **Server Boost Level 2** for custom role icons. "
+            "Your SideBot profile-card badges still work without boosts."
+        )
+        return
+    roles, error = await ensure_rank_badge_roles(ctx.guild, refresh_icons=True)
+    synced = await sync_all_rank_badge_roles(ctx.guild, roles)
+    message = (
+        f"✅ Native 509 rank icons configured: **{len(roles)}/8** badge roles.\n"
+        f"Synced equipped badges for **{synced}** members.\n"
+        "Members can now use `/equipbadge` and their selected unlocked badge can appear "
+        "beside their Discord username in this server."
+    )
+    if error:
+        message += f"\n⚠️ Some icons could not be configured: {error}"
+    message += (
+        "\n\nIf a member sees a different icon, another higher Discord role with an icon "
+        "is overriding the SideBot badge."
+    )
+    await ctx.send(message)
 
 
 def contains_discord_server_invite(text):
@@ -3221,9 +3275,17 @@ async def equip_rank_badge_command(ctx, number: int = None):
             f"**{earned} — {rank_badge_name(earned)}**."
         )
         return
+    native_synced = await sync_member_rank_badge_role(ctx.author, xp)
+    native_note = (
+        " It is also synced to your native Discord role icon."
+        if native_synced else
+        " Your SideBot card is updated. Native Discord display requires an admin to run "
+        "`509 rankicons setup` on a Boost Level 2 server."
+    )
     await ctx.send(
         f"✅ Equipped rank badge **{number} — {rank_badge_name(number)}**. "
         "It will appear next to your name on your SideBot profile/rank card."
+        + native_note
     )
 
 @bot.group(name="badge", invoke_without_command=True)
@@ -3536,9 +3598,17 @@ async def equip_rank_badge_slash(
             ephemeral=True,
         )
         return
+    native_synced = await sync_member_rank_badge_role(interaction.user, xp)
+    native_note = (
+        " It is also synced to your native Discord role icon."
+        if native_synced else
+        " Your SideBot card is updated. Native Discord display requires `509 rankicons setup` "
+        "on a Boost Level 2 server."
+    )
     await interaction.response.send_message(
         f"✅ Equipped **{badge} — {rank_badge_name(badge)}**. "
-        "It now appears next to your name on your SideBot profile/rank card.",
+        "It now appears next to your name on your SideBot profile/rank card."
+        + native_note,
         ephemeral=True,
     )
 
