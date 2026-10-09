@@ -1054,15 +1054,16 @@ def social_query(message):
 # XP is server-specific. Only normal messages count, with a cooldown.
 XP_FILE = os.path.join(os.path.dirname(__file__), "xp_scores.json")
 XP_RANKS = (
-    ("Rookie", 0, 0x95A5A6),
-    ("Bronze", 100, 0xCD7F32),
-    ("Silver", 350, 0xBCC6CC),
-    ("Gold", 800, 0xFFD700),
-    ("Platinum", 1600, 0x40E0D0),
-    ("Diamond", 3000, 0x3498DB),
-    ("Master", 5500, 0x9B59B6),
-    ("Legend", 10000, 0xE74C3C),
+    ("NPC", 0, 0x95A5A6),
+    ("Random", 100, 0xCD7F32),
+    ("Side Character", 350, 0xBCC6CC),
+    ("Regular", 800, 0xFFD700),
+    ("Main Character", 1600, 0x40E0D0),
+    ("Certified", 3000, 0x3498DB),
+    ("GOAT", 5500, 0x9B59B6),
+    ("Himothy", 10000, 0xE74C3C),
 )
+OLD_RANK_NAMES = ("Rookie", "Bronze", "Silver", "Gold", "Platinum", "Diamond", "Master", "Legend")
 XP_COOLDOWN_SECONDS = 60
 XP_PER_MESSAGE = 10
 xp_mutex = threading.Lock()
@@ -1094,7 +1095,17 @@ def rank_for_xp(xp):
 
 
 async def ensure_rank_roles(guild):
-    """Create missing rank roles without changing existing role permissions."""
+    """Rename existing rank roles where possible, preserving member assignments."""
+    roles = {}
+    for index, (name, threshold, color) in enumerate(XP_RANKS):
+        old_role = nextcord.utils.get(guild.roles, name=f"Rank | {OLD_RANK_NAMES[index]}")
+        new_role = nextcord.utils.get(guild.roles, name=f"Rank | {name}")
+        if old_role and not new_role:
+            try:
+                await old_role.edit(name=f"Rank | {name}", reason="SideBot rank name update")
+            except nextcord.DiscordException as exc:
+                print(f"Cannot rename rank role in {guild.name}: {exc}")
+    # Create any roles that could not be renamed.
     roles = {}
     for name, threshold, color in XP_RANKS:
         role_name = f"Rank | {name}"
