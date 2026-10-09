@@ -950,10 +950,121 @@ def get_ai_response(user_id: int, user_message: str, context: str = "server") ->
     return reply
 
 
+# Social links are keyed by guild and member ID, never just display name.
+SOCIAL_LINKS_FILE = os.path.join(os.path.dirname(__file__), "social_links.json")
+SOCIAL_CHANNEL_NAMES = {"self-promote", "self-promo", "self-promotion"}
+SOCIAL_HOSTS = {
+    "youtube": {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"},
+    "tiktok": {"tiktok.com", "www.tiktok.com", "m.tiktok.com"},
+    "twitch": {"twitch.tv", "www.twitch.tv"},
+    "instagram": {"instagram.com", "www.instagram.com"},
+}
+social_links_lock = threading.Lock()
+
+
+def load_social_links():
+    try:
+        with open(SOCIAL_LINKS_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+social_links = load_social_links()
+
+
+def extract_social_links(content):
+    """Accept only recognized public profile URLs, not arbitrary external links."""
+    from urllib.parse import urlsplit
+    found = {}
+    for raw in re.findall(r"https?://[^\\s<>]+", content, flags=re.IGNORECASE):
+        url = raw.rstrip(".,!?;:)]}>")
+        try:
+            parsed = urlsplit(url)
+            host = (parsed.hostname or "").lower()
+            path = parsed.path.strip("/")
+            platform = next((p for p, hosts in SOCIAL_HOSTS.items() if host in hosts), None)
+            if not platform or not path:
+                continue
+            first = path.split("/")[0]
+            if platform == "youtube":
+                valid = first.startswith("@") or first.lower() in ("channel", "c", "user")
+                if not valid or (first.lower() in ("channel", "c", "user") and len(path.split("/")) < 2):
+                    continue
+            elif platform == "tiktok":
+                if not first.startswith("@"):
+                    continue
+            elif platform == "twitch":
+                if first.lower() in ("videos", "directory", "downloads", "settings"):
+                    continue
+            elif platform == "instagram":
+                if first.lower() in ("p", "reel", "reels", "stories", "explore", "accounts"):
+                    continue
+            found[platform] = url
+        except ValueError:
+            continue
+    return found
+
+
+def save_social_links():
+    temp = SOCIAL_LINKS_FILE + ".tmp"
+    with social_links_lock:
+        with open(temp, "w", encoding="utf-8") as f:
+            json.dump(social_links, f, ensure_ascii=False, indent=2)
+        os.replace(temp, SOCIAL_LINKS_FILE)
+
+
+def social_query(message):
+    """Handle 'bot what @member youtube' or 'bot @member socials'."""
+    if not message.guild:
+        return None
+    text = message.content.strip()
+    match = re.match(
+        r"^(?:bot|side bot)\\s+(?:(?:what(?:'s| is)?|give|show|get)\\s+)?(.+?)\\s+"
+        r"(youtube|tiktok|twitch|instagram|insta|yt|socials?|links?)\\s*\\??$",
+        text, flags=re.IGNORECASE
+    )
+    if not match:
+        return None
+    subject, platform = match.groups()
+    subject = re.sub(r"^(?:is|are|does|of|for)\\s+", "", subject.strip(), flags=re.I)
+    platform = {"insta": "instagram", "yt": "youtube", "social": "all", "socials": "all", "link": "all", "links": "all"}.get(platform.lower(), platform.lower())
+    member = next((m for m in message.mentions if m.id != bot.user.id), None)
+    if member is None:
+        lookup = subject.lstrip("@").casefold()
+        matches = [m for m in message.guild.members if
+                   m.name.casefold() == lookup or m.display_name.casefold() == lookup or
+                   (getattr(m, "global_name", None) or "").casefold() == lookup]
+        if len(matches) != 1:
+            return "I couldn't identify that member. Mention them directly, for example: `bot what @user youtube`."
+        member = matches[0]
+    record = social_links.get(str(message.guild.id), {}).get(str(member.id), {})
+    if not record:
+        return f"No saved social links for {member.mention} yet. Post a profile link in #self-promote."
+    if platform == "all":
+        return f"Social links for {member.mention}:\\n" + "\\n".join(f"**{p.title()}:** {url}" for p, url in sorted(record.items()))
+    url = record.get(platform)
+    return f"{member.mention}'s {platform.title()}: {url}" if url else f"No {platform.title()} link saved for {member.mention} yet."
+
+
 @bot.event
 async def on_message(message):
-    if message.author == bot.user:
+    if message.author.bot:
         return
+
+    if message.guild:
+        if message.channel.name.lower() in SOCIAL_CHANNEL_NAMES:
+            links = extract_social_links(message.content)
+            if links:
+                guild_links = social_links.setdefault(str(message.guild.id), {})
+                guild_links.setdefault(str(message.author.id), {}).update(links)
+                save_social_links()
+                add_event(f"Saved social profiles for {message.author.display_name}: {', '.join(links)}")
+        answer = social_query(message)
+        if answer is not None:
+            await message.reply(answer, allowed_mentions=nextcord.AllowedMentions.none())
+            return
 
     # ── Three-stage mention pipeline ───────────────────────────
     if message.guild and bot.user in message.mentions and not message.mention_everyone:
