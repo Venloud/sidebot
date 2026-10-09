@@ -1851,7 +1851,7 @@ def draw_rank_card(display_name, avatar_bytes, xp, placement, message_count=0, j
 
     # Footer metadata mirrors the intended 509 rank-card layout.
     d.line((33, 282, W-33, 282), fill=(53, 67, 98), width=2)
-    d.text((44, 297), f"💬 {message_count:,} MESSAGES", fill=white, font=font(18, True))
+    d.text((44, 297), f"{message_count:,} MESSAGES", fill=white, font=font(18, True))
     d.text((365, 297), f"SERVER RANK  #{placement}", fill=(154, 181, 225), font=font(18, True))
     d.text((700, 297), f"JOINED {joined_label.upper()}", fill=(221, 229, 243), font=font(17, True))
     output = BytesIO()
@@ -2802,6 +2802,37 @@ async def rank_slash(
             f"{member.display_name} | {rank_for_xp(xp)[0]} | {xp:,} XP | #{placement}"
         )
 
+@bot.slash_command(name="profile", description="Show your SideBot profile/rank card")
+async def profile_slash(
+    interaction: nextcord.Interaction,
+    member: nextcord.Member = nextcord.SlashOption(description="Member to inspect", required=False),
+):
+    if not interaction.guild:
+        await interaction.response.send_message("Use this in a server.", ephemeral=True)
+        return
+    member = member or interaction.user
+    await interaction.response.defer()
+    scores = xp_scores.get(str(interaction.guild.id), {})
+    xp = max(0, int(scores.get(str(member.id), 0)))
+    placement = 1 + sum(int(score) > xp for score in scores.values())
+    count = int(message_counts.get(str(interaction.guild.id), {}).get(str(member.id), 0))
+    joined_label = member.joined_at.strftime("%b %Y") if member.joined_at else "Unknown"
+    try:
+        avatar_bytes = await member.display_avatar.read()
+        card = await asyncio.to_thread(
+            draw_rank_card, member.display_name, avatar_bytes, xp, placement, count, joined_label
+        )
+        await interaction.followup.send(
+            content=f"**Badges:** {format_badges(interaction.guild.id, member.id)}",
+            file=nextcord.File(card, filename="sidebot-profile.png"),
+            allowed_mentions=nextcord.AllowedMentions.none(),
+        )
+    except (nextcord.DiscordException, OSError, ValueError) as exc:
+        print(f"[profile slash] Failed: {exc}")
+        await interaction.followup.send(
+            f"{member.display_name} | {rank_for_xp(xp)[0]} | {xp:,} XP | #{placement}"
+        )
+
 @bot.slash_command(name="leaderboard", description="Show The 509 XP leaderboard")
 async def leaderboard_slash(interaction: nextcord.Interaction):
     if not interaction.guild:
@@ -2818,6 +2849,33 @@ async def leaderboard_slash(interaction: nextcord.Interaction):
         label = member.display_name if member else f"Member {uid}"
         rows.append(f"{position}. {nextcord.utils.escape_markdown(label)} — {xp:,} XP ({rank_for_xp(xp)[0]})")
     await interaction.response.send_message("**SideBot Leaderboard**\n" + "\n".join(rows))
+
+@bot.slash_command(name="freegames", description="Show currently active free-game offers")
+async def freegames_slash(interaction: nextcord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        offers = await asyncio.to_thread(fetch_free_game_offers)
+    except (requests.RequestException, ValueError) as exc:
+        print(f"[free games slash] API error: {exc}")
+        await interaction.followup.send("I couldn't fetch free-game offers right now.", ephemeral=True)
+        return
+    active = [
+        item for item in offers
+        if isinstance(item, dict) and item.get("status", "Active").lower() == "active"
+    ][:8]
+    if not active:
+        await interaction.followup.send("No active full-game giveaways found right now.", ephemeral=True)
+        return
+    rows = []
+    for item in active:
+        title = nextcord.utils.escape_markdown(str(item.get("title", "Free game"))[:100])
+        platforms = nextcord.utils.escape_markdown(str(item.get("platforms", "Various"))[:80])
+        link = str(item.get("gamerpower_url", ""))
+        if not link.startswith("https://www.gamerpower.com/"):
+            link = "https://www.gamerpower.com/"
+        rows.append(f"**{title}** — {platforms}\n{link}")
+    message = "🎮 **ACTIVE FREE GAMES**\n\n" + "\n\n".join(rows)
+    await interaction.followup.send(message[:1950], ephemeral=True)
 
 @bot.slash_command(name="links", description="Show The 509 resource directory")
 async def links_slash(interaction: nextcord.Interaction):
