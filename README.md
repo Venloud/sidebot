@@ -1,7 +1,7 @@
 # SideBot private GitHub setup
 
 1. Create a **private** GitHub repository and upload the contents of this folder to its root. Do not upload the original source ZIP or its `.git` directory.
-2. In the repo, open **Settings > Secrets and variables > Actions > New repository secret**. Add the required `DISCORD_TOKEN`. Also add `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `GROQ_API_KEY`, `DASHBOARD_PASSWORD`, and `SESSION_SECRET` if you use those features.
+2. In the repo, open **Settings > Secrets and variables > Actions > New repository secret**. Add the required `DISCORD_TOKEN`. Also add `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `YOUTUBE_API_KEY`, `GROQ_API_KEY`, `DASHBOARD_PASSWORD`, and `SESSION_SECRET` if you use those features.
 3. Open **Actions > SideBot Discord > Run workflow** to launch immediately. Scheduled runs use UTC at 00:00, 06:00, 12:00, and 18:00.
 4. Make sure **Message Content**, **Server Members**, and **Presence** privileged intents are enabled in Discord Developer Portal for this bot.
 
@@ -127,3 +127,21 @@ Default configured entries: `movies` points to FMHY video streaming aggregators;
 ## 509 prefix and quiet commands
 
 Use `509` as a full command prefix, for example `509 rank`, `509 links`, or `509 create poll Messi | Ronaldo | X`. Existing prefixes remain in place. SideBot tries to delete recognized command invocation messages immediately after execution starts, where it has Manage Messages permission. Users can turn on short-lived replies using `509 silent on`, and turn them off with `509 silent off`. Standard responses sent through `ctx.send` are removed after 10 seconds when silent mode is on. This is **not private or ephemeral** and some commands send directly to channels or produce files, so their messages may remain. Silent preferences reset when the bot restarts. 
+
+
+## October 2026 feature-completion branch
+
+The `add-missing-sidebot-features` branch adds the remaining 509 migration features that were identified during the Dyno/Tatsu/FreeStuff audit:
+
+- **One-time secret voice access**: administrators run `bot vault setup #voice-channel`, then set the password privately in SideBot DMs with `bot vault set SERVER_ID PASSWORD`. Members use **`/vault`**; successful verification grants the `Secret Access` role for five minutes to join. Once the member leaves, switches away from, or disconnects from the configured Vault voice channel, SideBot removes the role. On restart, stale Vault roles are removed from anyone not currently inside the configured channel.
+- **509 badges/accolades**: every member displays the universal **🇭🇹 The 509** badge. Special badges can be granted with `bot badge grant @member CODE` and removed with `bot badge remove @member CODE`. Use `bot badge` to list badge codes and `/badges` to view a member's badges.
+- **Rank card parity improvements**: rank cards now include SideBot-tracked message count and the member's Discord server join month/year in addition to rank, XP and server placement. Badge text is included with rank responses.
+- **Slash commands**: `/rank`, `/leaderboard`, `/links`, `/anime`, `/movies`, `/football`, `/manga`, `/music`, `/clips`, `/games`, `/badges`, and `/vault` are available alongside legacy prefixes.
+- **Invite permission coverage**: the generated SideBot invite now requests the permissions needed by currently implemented moderation, role, channel, thread, event, rank-card and voice features. The bot role must still remain above roles it manages, and channel overrides still apply.
+- **Host compatibility**: the Flask monitor now respects a host-provided `PORT` environment variable (default 5000).
+
+New runtime state files are `SideBot/message_counts.json`, `SideBot/badges.json`, and `SideBot/vault_access.json`. The GitHub Actions test host persists them through the existing Actions cache, but that cache is still not durable production storage.
+
+### Production warning
+
+GitHub-hosted Actions remains a testing host, not dependable 24/7 Discord hosting. The scheduled workflow intentionally ends before GitHub's six-hour runner limit and can have gaps. Before retiring all replacement bots permanently, move SideBot to an always-on host with persistent SQLite/PostgreSQL storage and verify the bot role hierarchy, privileged Discord intents, slash-command registration, rank cards, free-game channel, resource commands, and Vault workflow in the live server.
