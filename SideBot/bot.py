@@ -2124,8 +2124,9 @@ async def rank_command(ctx, member: nextcord.Member = None):
         avatar_bytes = await member.display_avatar.read()
         count = int(message_counts.get(str(ctx.guild.id), {}).get(str(member.id), 0))
         joined_label = member.joined_at.strftime("%b %Y") if member.joined_at else "Unknown"
+        equipped = equipped_rank_number(ctx.guild.id, member.id, xp)
         card = await asyncio.to_thread(
-            draw_rank_card, member.display_name, avatar_bytes, xp, placement, count, joined_label
+            draw_rank_card, member.display_name, avatar_bytes, xp, placement, count, joined_label, equipped
         )
         await ctx.send(
             content=f"**Badges:** {format_badges(ctx.guild.id, member.id)}",
@@ -3126,8 +3127,9 @@ async def rank_slash(
     joined_label = member.joined_at.strftime("%b %Y") if member.joined_at else "Unknown"
     try:
         avatar_bytes = await member.display_avatar.read()
+        equipped = equipped_rank_number(interaction.guild.id, member.id, xp)
         card = await asyncio.to_thread(
-            draw_rank_card, member.display_name, avatar_bytes, xp, placement, count, joined_label
+            draw_rank_card, member.display_name, avatar_bytes, xp, placement, count, joined_label, equipped
         )
         await interaction.followup.send(
             content=f"**Badges:** {format_badges(interaction.guild.id, member.id)}",
@@ -3157,8 +3159,9 @@ async def profile_slash(
     joined_label = member.joined_at.strftime("%b %Y") if member.joined_at else "Unknown"
     try:
         avatar_bytes = await member.display_avatar.read()
+        equipped = equipped_rank_number(interaction.guild.id, member.id, xp)
         card = await asyncio.to_thread(
-            draw_rank_card, member.display_name, avatar_bytes, xp, placement, count, joined_label
+            draw_rank_card, member.display_name, avatar_bytes, xp, placement, count, joined_label, equipped
         )
         await interaction.followup.send(
             content=f"**Badges:** {format_badges(interaction.guild.id, member.id)}",
