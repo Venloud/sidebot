@@ -625,6 +625,110 @@ def save_usernames(filename, usernames):
 bot.tiktok_usernames = load_usernames("tiktok_users.txt")
 bot.twitch_usernames = load_usernames("twitch_users.txt")
 
+
+WELCOME_GUIDE_MARKER = "🇭🇹 **WELCOME TO THE 509!**"
+WELCOME_GUIDE = """🇭🇹 **WELCOME TO THE 509!** 🎮
+
+**Byenveni lakay ou!** Haitian gaming, football, anime, and good vibes!
+
+**📍 CHANNEL GUIDE**
+💬 #509-chat: General chat
+⚽ #fc27-contents: FC27 and Clubs
+🎬 #clips: Highlights
+🍿 #anime-movies-forum: Recommendations
+📢 #self-promote: Your content
+🌐 #useful-websites: Resources
+🎮 #free-games: Free games
+🗳️ #polls: Voting
+🏆 #leaderboard: XP ranks
+🤖 #bot-commands: Bot commands
+🔴 #live-notifications: Live alerts
+
+**🏆 RANKS**
+NPC → Random → Side Character → Regular → Main Character → Certified → GOAT → 👑 Himothy
+Earn XP by chatting. Use bot rank and bot leaderboard.
+
+**🤖 SIDEBOT**
+bot list: Commands
+bot create poll Messi | Ronaldo | X: Poll
+509website: Resources
+🔐 day-one: Private password-verified access.
+
+**📜 RULES**
+1. Respect everyone. No harassment or discrimination.
+2. No spam, scams, or harmful links.
+3. **Use the right channel for each topic.**
+4. Respect privacy and moderators.
+5. Follow Discord's rules.
+
+**🚀 GET STARTED**
+Say hello in #509-chat!
+🇭🇹 **THE 509, PLIS KE YON SÈVÈ, SE YON KOMINOTE!** 🔵🔴
+"""
+
+
+async def ensure_welcome_guide(guild):
+    """Keep a persistent guide in #welcome and preserve unrelated pinned messages."""
+    channel = nextcord.utils.get(guild.text_channels, name="welcome")
+    if not channel:
+        return
+    try:
+        pinned = await channel.pins()
+        if any(m.author.id == bot.user.id and m.content.startswith(WELCOME_GUIDE_MARKER) for m in pinned):
+            return
+        async for message in channel.history(limit=100):
+            if message.author.id == bot.user.id and message.content.startswith(WELCOME_GUIDE_MARKER):
+                if channel.permissions_for(guild.me).manage_messages:
+                    try:
+                        await message.pin(reason="509 welcome guide")
+                    except nextcord.DiscordException:
+                        pass
+                return
+        guide = await channel.send(WELCOME_GUIDE, allowed_mentions=nextcord.AllowedMentions.none())
+        if channel.permissions_for(guild.me).manage_messages:
+            try:
+                await guide.pin(reason="509 welcome guide")
+            except nextcord.DiscordException:
+                pass
+    except nextcord.DiscordException as exc:
+        print(f"Welcome guide setup failed in {guild.name}: {exc}")
+
+
+@tasks.loop(hours=6)
+async def welcome_cleanup():
+    """Delete unpinned messages older than 3 days ONLY in #welcome."""
+    from datetime import timezone, timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(days=3)
+    for guild in bot.guilds:
+        channel = nextcord.utils.get(guild.text_channels, name="welcome")
+        if not channel:
+            continue
+        perms = channel.permissions_for(guild.me)
+        if not (perms.view_channel and perms.read_message_history and perms.manage_messages):
+            continue
+        removed = 0
+        try:
+            async for message in channel.history(limit=250, before=cutoff):
+                if message.pinned or (
+                    message.author.id == bot.user.id and message.content.startswith(WELCOME_GUIDE_MARKER)
+                ):
+                    continue
+                try:
+                    await message.delete(reason="509 welcome messages older than three days")
+                    removed += 1
+                except nextcord.DiscordException as exc:
+                    print(f"Welcome cleanup deletion failed: {exc}")
+            if removed:
+                print(f"Removed {removed} aged welcome messages from {guild.name}")
+        except nextcord.DiscordException as exc:
+            print(f"Welcome cleanup failed in {guild.name}: {exc}")
+
+
+@welcome_cleanup.before_loop
+async def welcome_cleanup_ready():
+    await bot.wait_until_ready()
+
+
 @bot.event
 async def on_ready():
     global bot_start_time
@@ -639,13 +743,17 @@ async def on_ready():
         check_live_status.start()
     if not dayone_expiry_check.is_running():
         dayone_expiry_check.start()
+    if not welcome_cleanup.is_running():
+        welcome_cleanup.start()
     for guild in bot.guilds:
         await ensure_rank_roles(guild)
+        await ensure_welcome_guide(guild)
 
 @bot.event
 async def on_guild_join(guild):
     """Send a simple welcome message when the bot joins a new server."""
     await ensure_rank_roles(guild)
+    await ensure_welcome_guide(guild)
     # Try #general first, then the first text channel we can send to
     target = (
         nextcord.utils.get(guild.text_channels, name="general")
