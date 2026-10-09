@@ -1390,6 +1390,7 @@ async def on_message(message):
 ):
 
         await send_how_to(message.channel)
+        return
 
     if "bot kiye la" in content:
         online_members = [member.mention for member in message.channel.members
@@ -1397,6 +1398,7 @@ async def on_message(message):
         await message.channel.send(
             " ".join(online_members) if online_members else "**Mwen pa jwen moun ki online.**"
         )
+        return
 
     # Registered commands take precedence. Unknown wake-word messages use AI.
     wake = re.match(r"^(?:side bot|sidebot|bobot|bot)(?:\s+(.*))?$",
