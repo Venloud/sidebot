@@ -1,0 +1,30 @@
+name: SideBot Validation
+
+on:
+  pull_request:
+    paths:
+      - "SideBot/**"
+      - "scripts/**"
+      - "requirements.txt"
+      - ".github/workflows/validate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Compile Python
+        run: python -m py_compile SideBot/bot.py scripts/live_runner.py
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Import SideBot and register commands
+        working-directory: SideBot
+        run: python -c "import bot; print('SideBot import and command registration OK')"
