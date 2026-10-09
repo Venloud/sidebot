@@ -1399,7 +1399,7 @@ async def on_message(message):
         )
 
     # Registered commands take precedence. Unknown wake-word messages use AI.
-    wake = re.match(r"^(?:side bot|sidebot|bobot|bot)(?:\\s+(.*))?$",
+    wake = re.match(r"^(?:side bot|sidebot|bobot|bot)(?:\s+(.*))?$",
                     message.content.strip(), flags=re.IGNORECASE | re.DOTALL)
     if wake:
         ctx = await bot.get_context(message)
@@ -1415,7 +1415,7 @@ async def on_message(message):
                 reply = await asyncio.to_thread(get_ai_response, message.author.id, prompt, "server")
                 await message.reply(reply, allowed_mentions=nextcord.AllowedMentions.none())
             except Exception as exc:
-                print(f"[Wake word AI error] {exc}\\n{traceback.format_exc()}")
+                print(f"[Wake word AI error] {exc}\n{traceback.format_exc()}")
                 await message.reply("I can't answer right now. Try again shortly.")
         return
 
