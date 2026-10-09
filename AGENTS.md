@@ -117,3 +117,16 @@ Avoid logging sensitive DM/password payloads.
 5. Check Discord message-size limits.
 6. Verify runtime state persistence/ignore rules.
 7. Test affected flows in a real test server when possible.
+
+
+## Equippable rank badge contract
+
+The member's real XP rank and their equipped display badge are different concepts.
+
+- The large rank-card badge must always represent the member's real XP rank.
+- A member may equip any numbered rank badge from 1 through their highest unlocked rank.
+- Never allow equipping a future/higher rank.
+- If saved equipment data is invalid, fall back to the member's current rank.
+- The equipped badge is decorative and appears next to the member's name on SideBot's profile/rank card.
+- Do not claim SideBot can modify a user's native Discord account badge area. Native role icons are a separate Discord feature.
+- Keep equipped selections persisted independently from special accolade grants.

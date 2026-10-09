@@ -161,3 +161,27 @@ New runtime files: `message_counts.json`, `badges.json`, and `vault_access.json`
 ### Production requirement
 
 GitHub Actions remains a test host, not dependable 24/7 Discord hosting. Before permanently removing replacement bots, deploy SideBot to an always-on host with persistent SQLite/PostgreSQL storage, verify privileged Discord intents and role hierarchy, then test ranks, resource commands, free-game alerts, moderation, and Vault access in the live server.
+
+
+## Equippable rank badges
+
+SideBot's eight activity ranks now use the 509-style numbered badge design:
+
+1. NPC
+2. Random
+3. Side Character
+4. Regular
+5. Main Character
+6. Certified
+7. GOAT
+8. Himothy
+
+The large badge on a rank card always shows the member's **actual XP rank**. Members also unlock each numbered rank badge as they progress and may equip any badge at or below their current rank.
+
+Use `/equipbadge` or `509 equipbadge NUMBER` to choose an unlocked badge. The equipped badge appears next to the member's name on SideBot's `/rank` and `/profile` cards. `/badges` shows the currently equipped rank badge, unlocked rank badges, and separate special accolades.
+
+SideBot can decorate its own profile/rank card, but a Discord bot cannot add an arbitrary custom badge directly to a user's native Discord account profile. Native username decorations would require Discord-supported role icons/server features and are separate from this SideBot profile system.
+
+If PNG assets named `SideBot/assets/rank_badges/rank_1.png` through `rank_8.png` are present, SideBot uses them. Otherwise it renders a built-in 509-style metallic/neon badge, so the rank system remains functional without external image files.
+
+Equipped selections are persisted in `SideBot/equipped_rank_badges.json`.

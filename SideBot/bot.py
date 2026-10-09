@@ -165,7 +165,7 @@ def is_invite_response(raw: str) -> bool:
 _REGISTERED_COMMANDS = {
     "whoslive", "clean", "clear", "silent", "custom", "links", "anime", "movies", "football", "manga", "music", "clips", "games", "dayone", "create", "create_role", "assign_role",
     "create_poll", "assign_poll_role", "invite", "send", "wipe",
-    "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks", "badges", "badge", "vault",
+    "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks", "badges", "badge", "equipbadge", "equiprankbadge", "vault",
 }
 _INLINE_COMMANDS = {"kiye la"}  # handled inline in on_message, not via @bot.command
 
@@ -1275,6 +1275,8 @@ def social_query(message):
 # ── Message counts, accolades and one-time Vault access ───────────────
 MESSAGE_COUNTS_FILE = os.path.join(os.path.dirname(__file__), "message_counts.json")
 BADGES_FILE = os.path.join(os.path.dirname(__file__), "badges.json")
+EQUIPPED_RANK_BADGES_FILE = os.path.join(os.path.dirname(__file__), "equipped_rank_badges.json")
+RANK_BADGE_ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets", "rank_badges")
 VAULT_FILE = os.path.join(os.path.dirname(__file__), "vault_access.json")
 VAULT_ROLE_NAME = "Secret Access"
 VAULT_JOIN_TIMEOUT_SECONDS = 300
@@ -1306,6 +1308,7 @@ def _atomic_json_save(path, value):
 
 message_counts = _load_json_dict(MESSAGE_COUNTS_FILE)
 badge_data = _load_json_dict(BADGES_FILE)
+equipped_rank_badges = _load_json_dict(EQUIPPED_RANK_BADGES_FILE)
 vault_data = _load_json_dict(VAULT_FILE)
 vault_pending = {}  # (guild_id, user_id) -> {"joined": bool, "task": asyncio.Task}
 
@@ -1314,6 +1317,9 @@ def save_message_counts():
 
 def save_badges():
     _atomic_json_save(BADGES_FILE, badge_data)
+
+def save_equipped_rank_badges():
+    _atomic_json_save(EQUIPPED_RANK_BADGES_FILE, equipped_rank_badges)
 
 def save_vault():
     _atomic_json_save(VAULT_FILE, vault_data)
@@ -1341,6 +1347,44 @@ def badges_for(guild_id, user_id):
 
 def format_badges(guild_id, user_id):
     return " • ".join(f"{emoji} {name}" for emoji, name in badges_for(guild_id, user_id))
+
+def earned_rank_number(xp):
+    """Return the highest rank badge number earned by XP (1..8)."""
+    earned = 1
+    for index, (_, threshold, _) in enumerate(XP_RANKS, 1):
+        if xp >= threshold:
+            earned = index
+    return earned
+
+def rank_badge_name(number):
+    if 1 <= int(number) <= len(XP_RANKS):
+        return XP_RANKS[int(number) - 1][0]
+    return "Unknown"
+
+def equipped_rank_number(guild_id, user_id, xp):
+    """Return a valid equipped rank badge, falling back to current rank."""
+    earned = earned_rank_number(xp)
+    raw = equipped_rank_badges.get(str(guild_id), {}).get(str(user_id), earned)
+    try:
+        selected = int(raw)
+    except (TypeError, ValueError):
+        selected = earned
+    return selected if 1 <= selected <= earned else earned
+
+def set_equipped_rank_number(guild_id, user_id, number, xp):
+    earned = earned_rank_number(xp)
+    number = int(number)
+    if number < 1 or number > earned:
+        return False, earned
+    equipped_rank_badges.setdefault(str(guild_id), {})[str(user_id)] = number
+    save_equipped_rank_badges()
+    return True, earned
+
+def unlocked_rank_badges_text(xp):
+    earned = earned_rank_number(xp)
+    return " • ".join(
+        f"{index} — {name}" for index, (name, _, _) in enumerate(XP_RANKS[:earned], 1)
+    )
 
 def _vault_digest(secret, salt):
     import hashlib
@@ -1856,7 +1900,8 @@ async def list_commands(ctx):
         "leaderboard": "Top 10 members by XP (alias: top)",
         "ranks": "View all rank thresholds",
         "setupranks": "Create rank roles (Manage Roles required)",
-        "badges": "Show 509 member and achievement badges",
+        "badges": "Show unlocked/equipped rank badges and special 509 accolades",
+        "equipbadge": "Equip any rank badge you have unlocked",
         "badge": "Manage special 509 achievement badges (Manage Roles required)",
         "vault": "Configure one-time secret voice access; members use /vault",
         "ping": "Check bot latency and monitor status",
@@ -1934,7 +1979,7 @@ async def role_permissions_command(ctx, *, role_name: str = ""):
         await ctx.send(body, allowed_mentions=nextcord.AllowedMentions.none())
 
 
-def draw_rank_card(display_name, avatar_bytes, xp, placement, message_count=0, joined_label="Unknown"):
+def draw_rank_card(display_name, avatar_bytes, xp, placement, message_count=0, joined_label="Unknown", equipped_number=None):
     """Render a personalized card inspired by the blue, red and silver 509 crest."""
     from io import BytesIO
     from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -1945,6 +1990,9 @@ def draw_rank_card(display_name, avatar_bytes, xp, placement, message_count=0, j
     d = ImageDraw.Draw(img)
     name, floor, _ = rank_for_xp(xp)
     number = next(i for i, entry in enumerate(XP_RANKS, 1) if entry[0] == name)
+    equipped_number = int(equipped_number or number)
+    if not 1 <= equipped_number <= number:
+        equipped_number = number
     following = next((r for r in XP_RANKS if r[1] > xp), None)
     blue, red, white = (0, 112, 255), (248, 34, 61), (241, 247, 255)
     regular = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -1996,29 +2044,105 @@ def draw_rank_card(display_name, avatar_bytes, xp, placement, message_count=0, j
     except (OSError, ValueError, TypeError):
         d.text((107, 131), "?", fill=white, font=font(51, True))
     d = ImageDraw.Draw(img)
-    d.text((252, 49), display_name[:23], fill=white, font=font(31, True))
+    display = display_name[:23]
+    name_font = font(31, True)
+    d.text((252, 49), display, fill=white, font=name_font)
     d.text((967, 51), f"#{placement}", fill=white, font=font(32, True), anchor="ra")
 
-    # Each level gets its own crowned metallic shield badge.
-    bx, by = 301, 174
-    level_shades = [
-        (118, 128, 153), (155, 179, 210), (46, 208, 222),
-        (16, 113, 255), (154, 82, 255), (244, 189, 63),
-        (76, 192, 255), (255, 49, 75)
-    ]
-    shade = level_shades[number - 1]
-    outline = [(bx, by-56), (bx+48, by-32), (bx+43, by+23),
-               (bx, by+55), (bx-43, by+23), (bx-48, by-32)]
-    d.polygon(outline, fill=(8, 16, 37))
-    d.line(outline + [outline[0]], fill=shade, width=7, joint="curve")
-    inner = [(bx, by-40), (bx+31, by-23), (bx+27, by+15),
-             (bx, by+36), (bx-27, by+15), (bx-31, by-23)]
-    d.polygon(inner, fill=(23, 39, 70))
-    d.text((bx, by-16), str(number), font=font(38, True), fill=white, anchor="mm")
-    if number >= 5:
-        crowns = [(bx-27, by-63), (bx-18, by-77), (bx-4, by-65),
-                  (bx, by-85), (bx+10, by-65), (bx+25, by-78), (bx+31, by-61)]
-        d.polygon(crowns, fill=shade)
+    def load_rank_badge_asset(rank_number, size):
+        """Load an exact asset when present; otherwise draw the 509-style badge."""
+        path = os.path.join(RANK_BADGE_ASSET_DIR, f"rank_{rank_number}.png")
+        try:
+            badge = Image.open(path).convert("RGBA")
+            badge.thumbnail((size, size), Image.Resampling.LANCZOS)
+            return badge
+        except (OSError, ValueError):
+            pass
+
+        palette = [
+            ((207, 111, 59), (248, 53, 48)),
+            ((210, 229, 255), (18, 116, 255)),
+            ((158, 214, 255), (10, 128, 255)),
+            ((222, 235, 255), (33, 120, 255)),
+            ((190, 85, 255), (255, 46, 150)),
+            ((255, 191, 76), (255, 87, 33)),
+            ((126, 213, 255), (31, 111, 255)),
+            ((255, 189, 71), (255, 43, 47)),
+        ]
+        primary, secondary = palette[rank_number - 1]
+        S = 180
+        badge = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+        glow_layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+        gd2 = ImageDraw.Draw(glow_layer)
+        gd2.ellipse((21, 31, 159, 169), fill=primary + (75,))
+        gd2.ellipse((52, 50, 174, 157), fill=secondary + (55,))
+        glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(20))
+        badge = Image.alpha_composite(badge, glow_layer)
+        bd = ImageDraw.Draw(badge)
+
+        # Crown silhouette.
+        crown = [(49, 48), (59, 31), (73, 43), (89, 20), (102, 43),
+                 (119, 31), (129, 48), (118, 57), (60, 57)]
+        bd.polygon(crown, fill=(246, 250, 255, 255))
+        bd.line(crown + [crown[0]], fill=primary + (255,), width=4, joint="curve")
+        for cx, cy in ((59,31),(89,20),(119,31)):
+            bd.ellipse((cx-4, cy-4, cx+4, cy+4), fill=secondary + (255,))
+
+        # Multi-layer metallic shield.
+        outer = [(90, 48), (145, 69), (139, 132), (90, 165), (41, 132), (35, 69)]
+        middle = [(90, 57), (135, 75), (130, 124), (90, 151), (50, 124), (45, 75)]
+        inner = [(90, 67), (124, 81), (120, 116), (90, 138), (60, 116), (56, 81)]
+        bd.polygon(outer, fill=(5, 10, 25, 255))
+        bd.line(outer + [outer[0]], fill=secondary + (255,), width=8, joint="curve")
+        bd.line([(38, 72), (90, 51), (142, 72)], fill=primary + (255,), width=5)
+        bd.polygon(middle, fill=(24, 31, 52, 255))
+        bd.line(middle + [middle[0]], fill=primary + (255,), width=6, joint="curve")
+        bd.polygon(inner, fill=(12, 16, 29, 255))
+        bd.line(inner + [inner[0]], fill=(230, 239, 255, 255), width=4, joint="curve")
+
+        # Blue-left / red-right 509 accent shards.
+        bd.polygon([(35, 78), (55, 69), (51, 119), (38, 129)], fill=(10, 105, 255, 230))
+        bd.polygon([(145, 78), (125, 69), (129, 119), (142, 129)], fill=(255, 35, 54, 230))
+
+        # Rank number with dark stroke for the game-badge look.
+        num_font = font(61, True)
+        text_value = str(rank_number)
+        tb = bd.textbbox((0, 0), text_value, font=num_font, stroke_width=3)
+        tw, th = tb[2]-tb[0], tb[3]-tb[1]
+        bd.text((90 - tw/2, 96 - th/2), text_value, font=num_font,
+                fill=(245, 248, 255, 255), stroke_width=5,
+                stroke_fill=(0, 0, 0, 255))
+
+        badge.thumbnail((size, size), Image.Resampling.LANCZOS)
+        return badge
+
+    # Large badge = actual XP rank.
+    current_badge = load_rank_badge_asset(number, 132)
+    if current_badge:
+        img.alpha_composite(current_badge, (235, 104))
+        d = ImageDraw.Draw(img)
+    else:
+        # Safe fallback if an image asset is missing.
+        bx, by = 301, 174
+        shade = [
+            (184, 101, 55), (180, 205, 235), (88, 181, 255), (57, 137, 255),
+            (176, 82, 255), (247, 180, 64), (83, 190, 255), (255, 62, 74)
+        ][number - 1]
+        outline = [(bx, by-56), (bx+48, by-32), (bx+43, by+23),
+                   (bx, by+55), (bx-43, by+23), (bx-48, by-32)]
+        d.polygon(outline, fill=(8, 16, 37))
+        d.line(outline + [outline[0]], fill=shade, width=7, joint="curve")
+        d.text((bx, by-16), str(number), font=font(38, True), fill=white, anchor="mm")
+
+    # Small badge = the unlocked rank badge the member chose to equip.
+    equipped_badge = load_rank_badge_asset(equipped_number, 58)
+    if equipped_badge:
+        name_box = d.textbbox((252, 49), display, font=name_font)
+        equip_x = min(name_box[2] + 14, 625)
+        img.alpha_composite(equipped_badge, (equip_x, 35))
+        d = ImageDraw.Draw(img)
+        d.text((equip_x + 29, 91), "EQUIPPED", font=font(9, True),
+               fill=(160, 180, 215), anchor="ma")
     d.text((370, 119), "RANK", fill=(151, 168, 199), font=font(20, True))
     d.text((370, 149), name.upper(), fill=white, font=font(29 if len(name)<14 else 23, True))
 
@@ -2059,8 +2183,9 @@ async def rank_command(ctx, member: nextcord.Member = None):
         avatar_bytes = await member.display_avatar.read()
         count = int(message_counts.get(str(ctx.guild.id), {}).get(str(member.id), 0))
         joined_label = member.joined_at.strftime("%b %Y") if member.joined_at else "Unknown"
+        equipped = equipped_rank_number(ctx.guild.id, member.id, xp)
         card = await asyncio.to_thread(
-            draw_rank_card, member.display_name, avatar_bytes, xp, placement, count, joined_label
+            draw_rank_card, member.display_name, avatar_bytes, xp, placement, count, joined_label, equipped
         )
         await ctx.send(
             content=f"**Badges:** {format_badges(ctx.guild.id, member.id)}",
@@ -2895,14 +3020,45 @@ async def dayone_expiry_check():
 
 @bot.command(name="badges")
 async def badges_command(ctx, member: nextcord.Member = None):
-    """Show a member's SideBot accolades."""
+    """Show a member's rank-badge collection and special accolades."""
     if not ctx.guild:
         return
     member = member or ctx.author
+    xp = max(0, int(xp_scores.get(str(ctx.guild.id), {}).get(str(member.id), 0)))
+    equipped = equipped_rank_number(ctx.guild.id, member.id, xp)
     await ctx.send(
         f"**{nextcord.utils.escape_markdown(member.display_name)} — Badges**\n"
-        + format_badges(ctx.guild.id, member.id),
+        f"**Equipped rank badge:** {equipped} — {rank_badge_name(equipped)}\n"
+        f"**Unlocked rank badges:** {unlocked_rank_badges_text(xp)}\n"
+        f"**Special:** {format_badges(ctx.guild.id, member.id)}\n"
+        "Use 509 equipbadge NUMBER to equip any rank badge you have unlocked.",
         allowed_mentions=nextcord.AllowedMentions.none(),
+    )
+
+@bot.command(name="equipbadge", aliases=["equiprankbadge"])
+async def equip_rank_badge_command(ctx, number: int = None):
+    """Equip any rank badge the member has already unlocked."""
+    if not ctx.guild:
+        return
+    xp = max(0, int(xp_scores.get(str(ctx.guild.id), {}).get(str(ctx.author.id), 0)))
+    current = equipped_rank_number(ctx.guild.id, ctx.author.id, xp)
+    if number is None:
+        await ctx.send(
+            f"Currently equipped: **{current} — {rank_badge_name(current)}**\n"
+            f"Unlocked: {unlocked_rank_badges_text(xp)}\n"
+            "Usage: 509 equipbadge NUMBER"
+        )
+        return
+    ok, earned = set_equipped_rank_number(ctx.guild.id, ctx.author.id, number, xp)
+    if not ok:
+        await ctx.send(
+            f"🔒 Badge {number} is not unlocked yet. Your highest unlocked badge is "
+            f"**{earned} — {rank_badge_name(earned)}**."
+        )
+        return
+    await ctx.send(
+        f"✅ Equipped rank badge **{number} — {rank_badge_name(number)}**. "
+        "It will appear next to your name on your SideBot profile/rank card."
     )
 
 @bot.group(name="badge", invoke_without_command=True)
@@ -3061,8 +3217,9 @@ async def rank_slash(
     joined_label = member.joined_at.strftime("%b %Y") if member.joined_at else "Unknown"
     try:
         avatar_bytes = await member.display_avatar.read()
+        equipped = equipped_rank_number(interaction.guild.id, member.id, xp)
         card = await asyncio.to_thread(
-            draw_rank_card, member.display_name, avatar_bytes, xp, placement, count, joined_label
+            draw_rank_card, member.display_name, avatar_bytes, xp, placement, count, joined_label, equipped
         )
         await interaction.followup.send(
             content=f"**Badges:** {format_badges(interaction.guild.id, member.id)}",
@@ -3092,8 +3249,9 @@ async def profile_slash(
     joined_label = member.joined_at.strftime("%b %Y") if member.joined_at else "Unknown"
     try:
         avatar_bytes = await member.display_avatar.read()
+        equipped = equipped_rank_number(interaction.guild.id, member.id, xp)
         card = await asyncio.to_thread(
-            draw_rank_card, member.display_name, avatar_bytes, xp, placement, count, joined_label
+            draw_rank_card, member.display_name, avatar_bytes, xp, placement, count, joined_label, equipped
         )
         await interaction.followup.send(
             content=f"**Badges:** {format_badges(interaction.guild.id, member.id)}",
@@ -3174,7 +3332,7 @@ def _register_resource_slash_commands():
 
 _register_resource_slash_commands()
 
-@bot.slash_command(name="badges", description="Show your 509 badges")
+@bot.slash_command(name="badges", description="Show unlocked and equipped 509 badges")
 async def badges_slash(
     interaction: nextcord.Interaction,
     member: nextcord.Member = nextcord.SlashOption(description="Member to inspect", required=False),
@@ -3183,9 +3341,39 @@ async def badges_slash(
         await interaction.response.send_message("Use this in a server.", ephemeral=True)
         return
     member = member or interaction.user
+    xp = max(0, int(xp_scores.get(str(interaction.guild.id), {}).get(str(member.id), 0)))
+    equipped = equipped_rank_number(interaction.guild.id, member.id, xp)
     await interaction.response.send_message(
         f"**{nextcord.utils.escape_markdown(member.display_name)} — Badges**\n"
-        + format_badges(interaction.guild.id, member.id),
+        f"**Equipped rank badge:** {equipped} — {rank_badge_name(equipped)}\n"
+        f"**Unlocked rank badges:** {unlocked_rank_badges_text(xp)}\n"
+        f"**Special:** {format_badges(interaction.guild.id, member.id)}",
+        ephemeral=True,
+    )
+
+@bot.slash_command(name="equipbadge", description="Equip an unlocked 509 rank badge")
+async def equip_rank_badge_slash(
+    interaction: nextcord.Interaction,
+    badge: int = nextcord.SlashOption(description="Rank badge number from 1 to 8", required=True),
+):
+    if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+        await interaction.response.send_message("Use this in a server.", ephemeral=True)
+        return
+    xp = max(0, int(xp_scores.get(str(interaction.guild.id), {}).get(str(interaction.user.id), 0)))
+    if badge < 1 or badge > 8:
+        await interaction.response.send_message("Choose a badge number from 1 to 8.", ephemeral=True)
+        return
+    ok, earned = set_equipped_rank_number(interaction.guild.id, interaction.user.id, badge, xp)
+    if not ok:
+        await interaction.response.send_message(
+            f"🔒 Badge {badge} is not unlocked yet. Your highest unlocked badge is "
+            f"**{earned} — {rank_badge_name(earned)}**.",
+            ephemeral=True,
+        )
+        return
+    await interaction.response.send_message(
+        f"✅ Equipped **{badge} — {rank_badge_name(badge)}**. "
+        "It now appears next to your name on your SideBot profile/rank card.",
         ephemeral=True,
     )
 
