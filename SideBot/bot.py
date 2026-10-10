@@ -3351,12 +3351,14 @@ def check_tiktok_live(username):
         text = response.text
         # TikTok embeds liveRoomStatus in the SSR JSON on every /live page.
         # 0 = not streaming. Any non-zero value means the room is active.
-        match = re.search(r'"liveRoomStatus":(\d+)', text)
+        # TikTok uses both plain and JSON-escaped status markers depending on the page.
+        match = re.search(r'(?:\\"|")liveRoomStatus(?:\\"|")\s*:\s*(\d+)', text)
         if not match:
-            print(f"TikTok [{username}] liveRoomStatus not found in page")
+            print(f"TikTok [{username}] liveRoomStatus not found; status UNKNOWN (no alert)")
             return None
         status = int(match.group(1))
-        is_live = status != 0
+        # Known live statuses are positive; do not treat missing data as offline.
+        is_live = status > 0
         print(f"TikTok [{username}] liveRoomStatus={status} is_live={is_live}")
         return (True, url) if is_live else (False, None)
     except Exception as e:
