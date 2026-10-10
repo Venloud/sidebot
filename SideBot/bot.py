@@ -3144,45 +3144,54 @@ async def on_message(message):
 _youtube_last_checked = {}
 
 
-def check_youtube_live(profile_url):
-    """Verify an active YouTube livestream using the official Data API."""
-    from urllib.parse import urlsplit
-    api_key = os.getenv("YOUTUBE_API_KEY")
-    if not api_key:
+def check_public_live_page(platform, profile_url):
+    """Check a public broadcaster page without API credentials.
+
+    yt-dlp extracts website metadata without downloading the video. An error
+    means UNKNOWN, not offline; only positive live_status triggers an alert.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+    import yt_dlp
+    parsed = urlsplit(profile_url)
+    if parsed.scheme not in ("http", "https"):
+        return None
+    path = parsed.path.rstrip("/")
+    if platform == "youtube":
+        if "/watch" in path or path.startswith("/live/"):
+            target = profile_url
+        else:
+            target = urlunsplit((parsed.scheme, parsed.netloc, path + "/live", "", ""))
+    elif platform == "twitch":
+        target = urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+    elif platform == "tiktok":
+        target = urlunsplit(("https", "www.tiktok.com", path if path.endswith("/live") else path + "/live", "", ""))
+    else:
         return None
     try:
-        path = urlsplit(profile_url).path.strip("/")
-        parts = path.split("/")
-        channel_id = None
-        if len(parts) >= 2 and parts[0].lower() == "channel":
-            channel_id = parts[1]
-        elif parts[0].startswith("@"):
-            response = requests.get(
-                "https://www.googleapis.com/youtube/v3/channels",
-                params={"part": "id", "forHandle": parts[0], "key": api_key},
-                timeout=10,
-            )
-            response.raise_for_status()
-            items = response.json().get("items", [])
-            channel_id = items[0]["id"] if items else None
-        if not channel_id:
+        with yt_dlp.YoutubeDL({
+            "quiet": True, "no_warnings": True, "skip_download": True,
+            "extract_flat": False, "ignoreerrors": False,
+            "socket_timeout": 12, "retries": 0, "playlistend": 1,
+        }) as extractor:
+            info = extractor.extract_info(target, download=False)
+        if not isinstance(info, dict):
             return None
-        response = requests.get(
-            "https://www.googleapis.com/youtube/v3/search",
-            params={
-                "part": "snippet", "channelId": channel_id,
-                "eventType": "live", "type": "video",
-                "maxResults": 1, "key": api_key,
-            },
-            timeout=10,
-        )
-        response.raise_for_status()
-        items = response.json().get("items", [])
-        video_id = items[0].get("id", {}).get("videoId") if items else None
-        return (bool(video_id), f"https://www.youtube.com/watch?v={video_id}" if video_id else None)
-    except (requests.RequestException, ValueError, KeyError, IndexError) as exc:
-        print(f"YouTube live check failed: {exc}")
+        if info.get("_type") == "playlist":
+            entries = info.get("entries") or []
+            info = next((entry for entry in entries if isinstance(entry, dict) and entry.get("live_status") == "is_live"), {})
+        if info.get("live_status") == "is_live" or info.get("is_live") is True:
+            link = info.get("webpage_url") or target
+            return (True, link)
+        if info.get("live_status") in ("not_live", "was_live", "post_live", "is_upcoming"):
+            return (False, None)
         return None
+    except Exception as exc:
+        print(f"[live] {platform} website extraction unavailable: {type(exc).__name__}: {str(exc)[:180]}")
+        return None
+
+
+def check_youtube_live(profile_url):
+    return check_public_live_page("youtube", profile_url)
 
 
 def profile_username(platform, url):
@@ -3220,9 +3229,7 @@ async def notify_live(guild, name, platform, link):
 async def check_live_status():
     global last_check_time
     print("Running live status check...")
-    twitch_configured = bool(TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET)
-    access_token = await asyncio.to_thread(get_twitch_access_token) if twitch_configured else None
-    print(f"[live] Twitch configured={twitch_configured}, authenticated={bool(access_token)}, YouTube key configured={bool(os.getenv('YOUTUBE_API_KEY'))}")
+    print("[live] Public website checks enabled for TikTok, YouTube and Twitch; no API credentials required")
     current = set()
     checked = set()
     # Old manually tracked accounts also remain supported in each server.
@@ -3249,28 +3256,15 @@ async def check_live_status():
             checked.add(key)
             result = None
             if platform == "youtube":
-                if not os.getenv("YOUTUBE_API_KEY"):
-                    print(f"[live] youtube {name}: skipped (missing API key)")
-                    continue
-                from time import monotonic
-                now = monotonic()
-                if now - _youtube_last_checked.get(key, float("-inf")) < 3600:
-                    # Retain the known active state until the next YouTube check.
-                    if key in announced_live_sessions:
-                        current.add(key)
-                    continue
-                _youtube_last_checked[key] = now
                 result = await asyncio.to_thread(check_youtube_live, url)
-            elif platform == "twitch" and access_token:
+            elif platform == "twitch":
                 username = profile_username(platform, url)
                 if username:
-                    result = await asyncio.to_thread(check_twitch_live, username, access_token)
+                    result = await asyncio.to_thread(check_twitch_live, username)
             elif platform == "tiktok":
                 username = profile_username(platform, url)
                 if username:
                     result = await asyncio.to_thread(check_tiktok_live, username)
-            if platform == "twitch" and not access_token:
-                print(f"[live] twitch {name}: skipped (missing credentials or failed authentication)")
             print(f"[live] {platform} {name}: {('LIVE' if result[0] else 'offline') if result is not None else 'UNKNOWN'}")
             # Unknown result must not reset a prior live announcement.
             if result is None:
@@ -3308,19 +3302,9 @@ def get_twitch_access_token():
         print(f"Twitch authentication failed: {e}")
         return None
 
-def check_twitch_live(username, access_token):
-    url = f"https://api.twitch.tv/helix/streams?user_login={username}"
-    headers = {"Client-ID": TWITCH_CLIENT_ID, "Authorization": f"Bearer {access_token}"}
-    if not access_token or not TWITCH_CLIENT_ID:
-        return None
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json().get("data", [])
-        return (True, f"https://www.twitch.tv/{username}") if data else (False, None)
-    except (requests.RequestException, ValueError) as e:
-        print(f"Twitch check failed for {username}: {e}")
-        return None
+def check_twitch_live(username, access_token=None):
+    return check_public_live_page("twitch", f"https://www.twitch.tv/{username}")
+
 
 def check_tiktok_live(username):
     """
@@ -3355,7 +3339,7 @@ def check_tiktok_live(username):
         match = re.search(r'(?:\\"|")liveRoomStatus(?:\\"|")\s*:\s*(\d+)', text)
         if not match:
             print(f"TikTok [{username}] liveRoomStatus not found; status UNKNOWN (no alert)")
-            return None
+            return check_public_live_page("tiktok", url)
         status = int(match.group(1))
         # Known live statuses are positive; do not treat missing data as offline.
         is_live = status > 0
