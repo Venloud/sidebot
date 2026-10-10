@@ -714,40 +714,36 @@ async def ensure_welcome_guide(guild):
         print(f"Welcome guide setup failed in {guild.name}: {exc}")
 
 
-@tasks.loop(hours=6)
+@tasks.loop(minutes=15)
 async def welcome_cleanup():
-    """Delete unpinned messages older than 3 days ONLY in #welcome."""
-    from datetime import timezone, timedelta
-    cutoff = datetime.now(timezone.utc) - timedelta(days=3)
+    """Leave pinned messages alone and remove all unpinned #welcome messages."""
     for guild in bot.guilds:
         channel = nextcord.utils.get(guild.text_channels, name="welcome")
         if not channel:
             continue
         perms = channel.permissions_for(guild.me)
         if not (perms.view_channel and perms.read_message_history and perms.manage_messages):
+            print(f"[welcome] Missing permissions to clean #{channel.name} in {guild.name}")
             continue
-        removed = 0
         try:
-            async for message in channel.history(limit=250, before=cutoff):
-                if message.pinned or (
-                    message.author.id == bot.user.id and message.content.startswith(WELCOME_GUIDE_MARKER)
-                ):
+            removed = 0
+            async for message in channel.history(limit=1000):
+                if message.pinned:
                     continue
                 try:
-                    await message.delete(reason="509 welcome messages older than three days")
+                    await message.delete(reason="Keep The 509 welcome channel pinned-only")
                     removed += 1
                 except nextcord.DiscordException as exc:
-                    print(f"Welcome cleanup deletion failed: {exc}")
+                    print(f"[welcome] Could not delete message {message.id}: {exc}")
             if removed:
-                print(f"Removed {removed} aged welcome messages from {guild.name}")
+                print(f"[welcome] Cleared {removed} unpinned messages in {guild.name}")
         except nextcord.DiscordException as exc:
-            print(f"Welcome cleanup failed in {guild.name}: {exc}")
+            print(f"[welcome] Cleanup failed in {guild.name}: {exc}")
 
 
 @welcome_cleanup.before_loop
 async def welcome_cleanup_ready():
     await bot.wait_until_ready()
-
 
 
 FREE_GAMES_FILE = os.path.join(os.path.dirname(__file__), "free_games_seen.json")
@@ -903,16 +899,6 @@ async def on_member_join(member):
                 print(f"Could not assign welcome role: {e}")
         else:
             print(f"Skipping unavailable or unsafe welcome role: {welcome_role_name}")
-
-    # Welcome message in #welcome or #general
-    welcome_channel = (
-        nextcord.utils.get(member.guild.channels, name="welcome")
-        or nextcord.utils.get(member.guild.channels, name="general")
-    )
-    if welcome_channel:
-        await welcome_channel.send(
-            f"Byenveni {member.mention}! 🎉 Map voye w yon mesaj prive pou nou ka konnen ou pi byen."
-        )
 
     # Start onboarding via DM
     try:
