@@ -752,7 +752,7 @@ async def welcome_cleanup():
                 if message.pinned:
                     continue
                 try:
-                    await message.delete(reason="Keep The 509 welcome channel pinned-only")
+                    await message.delete()
                     removed += 1
                 except nextcord.DiscordException as exc:
                     print(f"[welcome] Could not delete message {message.id}: {exc}")
@@ -3220,10 +3220,9 @@ async def notify_live(guild, name, platform, link):
 async def check_live_status():
     global last_check_time
     print("Running live status check...")
-    access_token = (
-        await asyncio.to_thread(get_twitch_access_token)
-        if TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET else None
-    )
+    twitch_configured = bool(TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET)
+    access_token = await asyncio.to_thread(get_twitch_access_token) if twitch_configured else None
+    print(f"[live] Twitch configured={twitch_configured}, authenticated={bool(access_token)}, YouTube key configured={bool(os.getenv('YOUTUBE_API_KEY'))}")
     current = set()
     checked = set()
     # Old manually tracked accounts also remain supported in each server.
@@ -3242,6 +3241,7 @@ async def check_live_status():
                 if links.get(platform):
                     targets.append((f"{platform}:member:{user_id}", name, platform, links[platform]))
 
+        print(f"[live] {guild.name}: targets={len(targets)}, notification channel={any(c.name.lower() == 'live-notifications' for c in guild.text_channels)}")
         for identity, name, platform, url in targets:
             key = f"{guild.id}:{identity}"
             if key in checked:
@@ -3250,6 +3250,7 @@ async def check_live_status():
             result = None
             if platform == "youtube":
                 if not os.getenv("YOUTUBE_API_KEY"):
+                    print(f"[live] youtube {name}: skipped (missing API key)")
                     continue
                 from time import monotonic
                 now = monotonic()
@@ -3268,6 +3269,9 @@ async def check_live_status():
                 username = profile_username(platform, url)
                 if username:
                     result = await asyncio.to_thread(check_tiktok_live, username)
+            if platform == "twitch" and not access_token:
+                print(f"[live] twitch {name}: skipped (missing credentials or failed authentication)")
+            print(f"[live] {platform} {name}: {('LIVE' if result[0] else 'offline') if result is not None else 'UNKNOWN'}")
             # Unknown result must not reset a prior live announcement.
             if result is None:
                 if key in announced_live_sessions:
