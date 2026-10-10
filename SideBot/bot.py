@@ -1258,7 +1258,7 @@ def discover_social_profiles(content):
         platforms = (platform,)
     elif bare:
         handle = bare.group(1)
-        platforms = ("youtube", "twitch", "tiktok")
+        platforms = ("youtube", "twitch", "tiktok", "instagram")
     else:
         return {}
     if handle.lower() in ("youtube","twitch","tiktok","instagram","hello","thanks","welcome","discord","live","link"):
@@ -1276,10 +1276,11 @@ def discover_social_profiles(content):
 SELF_PROMOTE_TOPIC = (
     "📣 Share your YouTube, Twitch, TikTok & Instagram profiles! "
     "Post a profile LINK, a username (example: venloud), or specify a platform "
-    "(twitch venloud / youtube venloud / tiktok venloud). "
+    "(twitch venloud / youtube venloud / tiktok venloud / instagram venloud). "
     "SideBot saves profiles and checks YouTube/Twitch/TikTok for live streams; "
     "verified live alerts go to #live-notifications. "
-    "A username alone is treated as a possible handle on all 3 platforms."
+    "A username alone is treated as a possible handle on all 4 platforms. "
+    "Instagram profiles are saved, but Instagram Live detection is not supported yet."
 )
 
 async def ensure_self_promote_topic(guild):
@@ -1306,7 +1307,7 @@ def social_query(message):
         return None
     text = message.content.strip()
     match = re.match(
-        r"^(?:bot|bobot|sidebot|side bot)\s+(?:(?:what(?:'s| is)?|give|show|get)\s+)?(.+?)\s+"
+        r"^(?:509|bot|bobot|sidebot|side bot)\s+(?:(?:what(?:'s| is)?|give|show|get)\s+)?(.+?)\s+"
         r"(youtube|tiktok|twitch|instagram|insta|yt|socials?|links?)\s*\??$",
         text, flags=re.IGNORECASE
     )
