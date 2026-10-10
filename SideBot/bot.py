@@ -2320,13 +2320,13 @@ async def list_commands(ctx):
         "equipbadge": "Equip any rank badge you have unlocked",
         "badge": "Manage special 509 achievement badges (Manage Roles required)",
         "vault": "Private voice access: DM 509 vault enter SERVER_ID CODE",
-        "ping": "Check bot latency and monitor status",
+        "ping": "Check bot latency and whether the live monitor is running",
         "clean": "Delete messages (alias: clear; Manage Messages required)",
         "create_role": "Create a Discord role (Manage Roles required)",
         "create": "Create channel, thread, role (with permission flags), poll, or event. Use bot create for syntax.",
         "dayone": "Set up private day-one channel with temporary or permanent password access",
         "assign_role": "Assign a member role (Administrator required)",
-        "whoslive": "Check monitored Twitch and TikTok accounts",
+        "whoslive": "Check tracked TikTok, Twitch, and YouTube livestreams (website detection)",
         "create_poll": "Post a poll (Manage Roles required)",
         "assign_poll_role": "Assign role to yes voters (Manage Roles required)",
         "invite": "Get SideBot's server invite information",
@@ -2341,15 +2341,19 @@ async def list_commands(ctx):
         "ban": "Ban a member, optionally with a reason",
         "unban": "Unban by numeric user ID",
     }
-    lines = ["**SideBot commands**", "Text prefixes: `509`, `bot`, `sidebot`, `bobot`, `side bot`, `!`", "Slash commands use `/` where registered."]
+    lines = ["**SideBot commands**", "Text prefixes: `509`, `bot`, `sidebot`, `bobot`, `side bot`, `!`", "Slash commands use `/` only when registered."]
     for command in sorted(bot.commands, key=lambda item: item.name):
         if command.hidden or command.name in ("help", "vault"):
             continue
-        lines.append(f"`{'/' if bot.get_application_command(command.name) else '509 '}{command.name}`: {descriptions.get(command.name, command.help or 'Bot command')}")
+        lines.append(f"`509 {command.name}`: {descriptions.get(command.name, command.help or 'Bot command')}")
     lines.extend([
         "",
         "**Other triggers**",
-        "509vault: Start private voice vault verification through DMs",
+        "`509vault`: Start private voice vault verification through DMs (not a slash command)",
+        "`509 onboarding` (DM): Restart private onboarding, nickname then joining reason",
+        "New members: Private English/Creole welcome; join reasons Gaming, Just chatting, Both, Other",
+        "Live alerts: TikTok, Twitch, YouTube website checks every 10 min in #live-notifications",
+        "`#self-promote`: Post a username or profile URL to register your social accounts",
         "`bot kiye la`: Mention online channel members",
         "`bot saw util` / `bot kisa w itil`: Help in Haitian Creole",
         "`bot what @member youtube`: Look up a saved social profile",
