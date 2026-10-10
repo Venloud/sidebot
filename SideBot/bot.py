@@ -861,7 +861,7 @@ async def on_ready():
         if badge_roles:
             await sync_all_rank_badge_roles(guild, badge_roles)
         await ensure_welcome_guide(guild)
-        await ensure_self_promote_topic(guild)
+        await ensure_channel_topics(guild)
         await cleanup_stale_vault_roles(guild)
 
 @bot.event
@@ -869,6 +869,7 @@ async def on_guild_join(guild):
     """Send a simple welcome message when the bot joins a new server."""
     await ensure_rank_roles(guild)
     await ensure_welcome_guide(guild)
+    await ensure_channel_topics(guild)
     # Try #general first, then the first text channel we can send to
     target = (
         nextcord.utils.get(guild.text_channels, name="general")
@@ -1273,25 +1274,39 @@ def discover_social_profiles(content):
     return {platform: urls[platform] for platform in platforms}
 
 
-SELF_PROMOTE_TOPIC = (
-    "📣 Share your YouTube, Twitch, TikTok & Instagram profiles! "
-    "Post a profile LINK, a username (example: venloud), or specify a platform "
-    "(twitch venloud / youtube venloud / tiktok venloud / instagram venloud). "
-    "SideBot saves profiles and checks YouTube/Twitch/TikTok for live streams; "
-    "verified live alerts go to #live-notifications. "
-    "A username alone is treated as a possible handle on all 4 platforms. "
-    "Instagram profiles are saved, but Instagram Live detection is not supported yet."
-)
-
-async def ensure_self_promote_topic(guild):
-    channel = nextcord.utils.get(guild.text_channels, name="self-promote")
-    if not channel or channel.topic == SELF_PROMOTE_TOPIC:
+CHANNEL_TOPICS = {
+    "bots": "🤖 Bot updates, testing and automation talk for The 509. Keep commands in #bot-commands.",
+    "bot-commands": "⌨️ Run SideBot commands here: 509 list, 509 rank, 509 links and more. Results appear in their dedicated channels.",
+    "clips": "🎬 Drop your best gameplay clips, funny moments, highlights and edits. Show the 509 what you got!",
+    "free-games": "🎁 Free-to-claim PC and console game deals, claim links and limited-time giveaways. Check expiration dates!",
+    "leaderboard": "🏆 The 509 XP rankings, rank cards, badges and leaderboard. Chat to earn XP and climb to Himothy.",
+    "live-notifications": "🔴 YouTube, Twitch and TikTok livestream alerts from our community. Jump in and show support!",
+    "polls": "🗳️ Community votes, hot takes and decisions. Pick your answer and let The 509 decide!",
+    "self-promote": "📣 Share YouTube, Twitch, TikTok and Instagram! Post a profile link or just your username (e.g. venloud). SideBot replies with possible profiles, saves them and checks YouTube/Twitch/TikTok for live streams.",
+    "useful-websites": "🌐 Share useful websites, tools and resources for games, anime, movies, sports and more. Use 509 links to explore.",
+    "509-chat": "🇭🇹 Lakay nou! General chat for The 509: games, music, football, jokes and everyday conversation.",
+    "fc27-contents": "⚽ EA SPORTS FC 27, Clubs squads, match clips, tactics, highlights and team discussions.",
+    "anime-movies-forum": "🍿 Anime, movies and TV discussions. Share reviews, recommendations, watchlists and what you're watching next.",
+}
+async def ensure_channel_topics(guild):
+    """Set channel topics when SideBot starts. Intentionally never edit #welcome."""
+    me = guild.me
+    if not me:
         return
-    try:
-        if guild.me.guild_permissions.manage_channels:
-            await channel.edit(topic=SELF_PROMOTE_TOPIC, reason="Explain SideBot social profile tracking")
-    except nextcord.DiscordException as exc:
-        print(f"[social] Cannot update #self-promote topic: {exc}")
+    for channel in guild.text_channels:
+        if channel.name.casefold() == "welcome":
+            continue
+        topic = CHANNEL_TOPICS.get(channel.name.casefold())
+        if not topic or channel.topic == topic:
+            continue
+        if not channel.permissions_for(me).manage_channels:
+            print(f"[topics] Cannot edit #{channel.name}: Manage Channels required")
+            continue
+        try:
+            await channel.edit(topic=topic, reason="The 509 channel descriptions")
+        except nextcord.DiscordException as exc:
+            print(f"[topics] Failed updating #{channel.name}: {exc}")
+
 
 def save_social_links():
     temp = SOCIAL_LINKS_FILE + ".tmp"
