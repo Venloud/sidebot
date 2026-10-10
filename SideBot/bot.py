@@ -2156,6 +2156,68 @@ async def what_command(ctx, *, question: str = ""):
     if request in ("day", "day is it", "day today", "today", "the day", "date", "date is it", "the date"):
         await ctx.send(f"📅 Today is **{now:%A, %B %d, %Y}** (Eastern time).")
         return
+    member_request = re.fullmatch(
+        r"(.+?)\s+(nickname|nick|socials?|tiktok|youtube|yt|twitch|instagram|insta|rank)$",
+        request,
+    )
+    if member_request:
+        subject, item = member_request.groups()
+        if not ctx.guild:
+            await ctx.send("Member lookups only work in a server.")
+            return
+        if ctx.message.mentions:
+            member = next((m for m in ctx.message.mentions if not m.bot), None)
+        else:
+            lookup = subject.lstrip("@").casefold()
+            matches = [
+                m for m in ctx.guild.members if
+                m.name.casefold() == lookup or
+                m.display_name.casefold() == lookup or
+                (getattr(m, "global_name", None) or "").casefold() == lookup
+            ]
+            member = matches[0] if len(matches) == 1 else None
+        if member is None:
+            await ctx.send("Member not found uniquely. Mention them directly.")
+            return
+        if item in ("nickname", "nick"):
+            await ctx.send(f"**{member.name}**'s nickname: **{nextcord.utils.escape_markdown(member.nick or member.display_name)}**",
+                           allowed_mentions=nextcord.AllowedMentions.none())
+            return
+        if item == "rank":
+            scores = xp_scores.get(str(ctx.guild.id), {})
+            xp = max(0, int(scores.get(str(member.id), 0)))
+            place = 1 + sum(int(value) > xp for value in scores.values())
+            await ctx.send(f"**{member.display_name}**: **{rank_for_xp(xp)[0]}**, {xp:,} XP, server position #{place}.",
+                           allowed_mentions=nextcord.AllowedMentions.none())
+            return
+        platform = {"social": "all", "socials": "all", "yt": "youtube", "insta": "instagram"}.get(item, item)
+        record = social_links.get(str(ctx.guild.id), {}).get(str(member.id), {})
+        if not record:
+            await ctx.send("No saved social profiles for that member. They can submit a handle in #self-promote.")
+            return
+        if platform == "all":
+            answer = "\n".join(f"**{key.title()}**: {url}" for key, url in sorted(record.items()))
+            await ctx.send(f"Saved profiles for **{member.display_name}**:\n{answer}",
+                           allowed_mentions=nextcord.AllowedMentions.none())
+        else:
+            url = record.get(platform)
+            await ctx.send(f"**{member.display_name}**'s {platform.title()}: {url}" if url
+                           else f"No saved {platform.title()} profile for {member.display_name}.",
+                           allowed_mentions=nextcord.AllowedMentions.none())
+        return
+
+    if request in ("channel rules", "rules", "this channel rules"):
+        if not ctx.guild:
+            await ctx.send("Channel rules are available in the server.")
+            return
+        topic = getattr(ctx.channel, "topic", None)
+        if topic:
+            await ctx.send(f"**{ctx.channel.mention} description:**\n{topic}",
+                           allowed_mentions=nextcord.AllowedMentions.none())
+        else:
+            await ctx.send(f"No channel-specific rules are set for {ctx.channel.mention}. Follow the server rules.")
+        return
+
     first = re.fullmatch(r"(?:calculator|calculate|calc)\s+(.+)", request)
     last = re.fullmatch(r"(.+?)\s+(?:calculator|calculate|calc)", request)
     expression = first.group(1) if first else last.group(1) if last else None
@@ -2172,7 +2234,9 @@ async def what_command(ctx, *, question: str = ""):
         "509 what calculator 2+2\n"
         "509 what 2+2 calculator\n"
         "509 what time is it?\n"
-        "509 what day is it?"
+        "509 what day is it?\n"
+        "509 what @member nickname | socials | tiktok | rank\n"
+        "509 what channel rules"
     )
 
 @bot.command(name="list")
