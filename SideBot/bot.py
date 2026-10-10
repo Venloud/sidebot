@@ -2898,6 +2898,16 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    # Vault commands are intentionally allowed in DMs. Route before generic DM
+    # command rejection and onboarding, without echoing any secret to a server.
+    if message.guild is None and re.match(r"^509\\s+vault\\s+(?:set|enter)\\s+", message.content.strip(), re.I):
+        ctx = await bot.get_context(message)
+        if ctx.valid:
+            await bot.invoke(ctx)
+        else:
+            await message.channel.send("Vault command not recognized. Use 509 vault set SERVER_ID CODE or 509 vault enter SERVER_ID CODE.")
+        return
+
     # The original exact trigger is 509vault, not a discoverable slash command.
     vault_match = re.fullmatch(r"509vault(?:\s+(\d{15,22})\s+(\S.{7,127}))?", message.content.strip(), re.I | re.S)
     if vault_match:
