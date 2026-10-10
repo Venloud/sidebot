@@ -2296,6 +2296,30 @@ async def what_command(ctx, *, question: str = ""):
         "509 what channel rules"
     )
 
+@bot.command(name="use")
+async def bot_use_manual(ctx, page: int = 1):
+    """A numbered instruction manual for using SideBot."""
+    pages = [
+        ("01 | START HERE", "GOAL: Get SideBot responding.\n1. Open #bot-commands.\n2. Type `bot ping` to check connectivity.\n3. Type `bot list` to see available commands.\n4. Continue with `bot use 2`.\nTIP: Most commands also accept `509` instead of `bot`."),
+        ("02 | SET UP YOUR PROFILE", "GOAL: Complete onboarding and check your rank.\n1. Check your DMs for SideBot's welcome.\n2. Enter your nickname when asked.\n3. Choose why you joined: 1 Gaming, 2 Just chatting, 3 Both, 4 Other.\n4. To restart, DM SideBot `509 onboarding`.\n5. In the server, try `bot rank` or `bot leaderboard`.\nTIP: Enable server-member DMs if you don't see the welcome."),
+        ("03 | CONNECT SOCIAL ACCOUNTS", "GOAL: Let members find your streams.\n1. Open #self-promote.\n2. Post your public TikTok, Twitch or YouTube profile URL.\n3. Look for SideBot's confirmation reply.\n4. SideBot checks saved profiles approximately every 10 minutes.\n5. Confirmed live alerts appear in #live-notifications.\nEXAMPLE: `https://www.tiktok.com/@venloud`\nCAUTION: Website checks sometimes return UNKNOWN and may miss streams."),
+        ("04 | EVERYDAY COMMANDS", "GOAL: Explore useful features.\n1. `bot rank`, see your current XP rank.\n2. `bot leaderboard`, view the server leaderboard.\n3. `bot badges`, check earned badges.\n4. `bot links`, open the resource directory.\n5. `509 what calculator 2+2`, calculate an expression.\n6. Mention SideBot with a question to chat.\nTIP: Return to `bot list` for all available commands."),
+        ("05 | MODERATOR TOOLS", "GOAL: Organize the server, if you have permissions.\n1. `bot create poll Messi | Ronaldo | X`, make a poll.\n2. `bot clean 10`, delete recent messages.\n3. `bot create`, get channel/thread/role/event syntax.\n4. `bot roleperms`, inspect permissions (admin only).\nWARNING: Moderation and role commands require the relevant permissions."),
+        ("06 | TROUBLESHOOTING", "NO RESPONSE? Try `bot ping` and check SideBot is online.\nNO WELCOME DM? Enable DMs, then DM `509 onboarding`.\nNO STREAM ALERT? Verify your profile was saved in #self-promote; live detection may return UNKNOWN.\nNEED A COMMAND? Type `bot list`.\nNEED PRIVATE VAULT ACCESS? Type `509vault` in the server, never share your code there.\nASSEMBLY COMPLETE: You're ready!"),
+    ]
+    if not 1 <= page <= len(pages):
+        await ctx.send(f"Choose a page from 1 to {len(pages)}. Example: `bot use 2`.")
+        return
+    heading, instructions = pages[page - 1]
+    message = (
+        f"📘 **THE 509 | SIDEBOT USER MANUAL**\n"
+        f"**{heading}**  •  Page {page}/{len(pages)}\n\n"
+        f"{instructions}\n\n"
+        f"**Next page:** `bot use {page + 1}`" if page < len(pages) else "**END OF MANUAL**"
+    )
+    await ctx.send(message, allowed_mentions=nextcord.AllowedMentions.none())
+
+
 @bot.command(name="list")
 async def list_commands(ctx):
     """Show all registered SideBot commands and supported chat triggers."""
@@ -2334,6 +2358,7 @@ async def list_commands(ctx):
         "join": "Join a voice channel",
         "leave": "Leave a voice channel",
         "list": "Show this command list",
+        "use": "Read the six-page SideBot instruction manual (bot use 1-6)",
         "roleperms": "Show each role’s server permissions (Administrator only)",
         "delete_role": "Delete an ordinary role (Manage Roles required)",
         "create_access_role": "Create access role for a channel: bot create_access_role Name #channel",
