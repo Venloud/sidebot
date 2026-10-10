@@ -847,6 +847,8 @@ async def on_ready():
         dayone_expiry_check.start()
     if not welcome_cleanup.is_running():
         welcome_cleanup.start()
+    if not missed_join_monitor.is_running():
+        missed_join_monitor.start()
     if not rank_role_monitor.is_running():
         rank_role_monitor.start()
     if not free_games_watch.is_running():
@@ -884,9 +886,68 @@ async def on_guild_join(guild):
             print(f"[on_guild_join] Could not send welcome to {guild.name}: {e}")
 
 
+# Track Discord joins across scheduled GitHub Actions runner restarts.
+# On first deployment, recover only joins within the last 72 hours.
+JOIN_RECEIPTS_FILE = os.path.join(os.path.dirname(__file__), "welcome_join_receipts.json")
+welcome_join_receipts = _load_json_dict(JOIN_RECEIPTS_FILE) if "_load_json_dict" in globals() else {}
+# The dictionary loader is declared later in this file, so load directly here.
+try:
+    with open(JOIN_RECEIPTS_FILE, encoding="utf-8") as receipt_handle:
+        receipt_state = json.load(receipt_handle)
+        welcome_join_receipts = receipt_state if isinstance(receipt_state, dict) else {}
+except (OSError, ValueError):
+    welcome_join_receipts = {}
+
+def save_welcome_join_receipts():
+    temp = JOIN_RECEIPTS_FILE + ".tmp"
+    with open(temp, "w", encoding="utf-8") as handle:
+        json.dump(welcome_join_receipts, handle, ensure_ascii=False, indent=2)
+    os.replace(temp, JOIN_RECEIPTS_FILE)
+
+@tasks.loop(minutes=30)
+async def missed_join_monitor():
+    """Catch member joins missed during downtime without repeating old welcomes."""
+    from datetime import timedelta, timezone
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=72)
+    for guild in bot.guilds:
+        state = welcome_join_receipts.setdefault(str(guild.id), {})
+        try:
+            members = list(guild.members)
+            # REST fetch avoids depending entirely on the gateway member cache.
+            if guild.member_count and len(members) < guild.member_count:
+                members = [member async for member in guild.fetch_members(limit=None)]
+            to_onboard = []
+            for member in members:
+                if member.bot or not member.joined_at:
+                    continue
+                join_stamp = member.joined_at.isoformat()
+                prior = state.get(str(member.id))
+                if prior == join_stamp:
+                    continue
+                if member.joined_at < cutoff:
+                    # Record older members so they aren't processed again.
+                    state[str(member.id)] = join_stamp
+                    continue
+                to_onboard.append(member)
+            save_welcome_join_receipts()
+            for member in to_onboard[:30]:
+                await on_member_join(member)
+        except (nextcord.DiscordException, OSError, ValueError) as exc:
+            print(f"[welcome] Could not reconcile recent joins in {guild.name}: {exc}")
+
+@missed_join_monitor.before_loop
+async def missed_join_monitor_ready():
+    await bot.wait_until_ready()
+
 @bot.event
 async def on_member_join(member):
     """Assign all accessible roles and start the onboarding DM flow."""
+    stamp = member.joined_at.isoformat() if member.joined_at else datetime.utcnow().isoformat()
+    state = welcome_join_receipts.setdefault(str(member.guild.id), {})
+    if state.get(str(member.id)) == stamp:
+        return
+    state[str(member.id)] = stamp
+    save_welcome_join_receipts()
     # Do not grant all server roles to new members.
     welcome_role_name = os.getenv("WELCOME_ROLE_NAME", "").strip()
     if welcome_role_name:
