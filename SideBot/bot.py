@@ -889,7 +889,6 @@ async def on_guild_join(guild):
 # Track Discord joins across scheduled GitHub Actions runner restarts.
 # On first deployment, recover only joins within the last 72 hours.
 JOIN_RECEIPTS_FILE = os.path.join(os.path.dirname(__file__), "welcome_join_receipts.json")
-welcome_join_receipts = _load_json_dict(JOIN_RECEIPTS_FILE) if "_load_json_dict" in globals() else {}
 # The dictionary loader is declared later in this file, so load directly here.
 try:
     with open(JOIN_RECEIPTS_FILE, encoding="utf-8") as receipt_handle:
