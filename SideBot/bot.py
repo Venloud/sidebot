@@ -1479,34 +1479,29 @@ badge_data = _load_json_dict(BADGES_FILE)
 equipped_rank_badges = _load_json_dict(EQUIPPED_RANK_BADGES_FILE)
 vault_data = _load_json_dict(VAULT_FILE)
 vault_pending = {}  # (guild_id, user_id) -> {"joined": bool, "task": asyncio.Task}
-vault_verified_dm = {}  # (guild_id, user_id) -> monotonic expiry, consumed on server command
-VAULT_DM_VERIFY_WINDOW = 300  # 5 minutes to complete step 2
+vault_one_time_codes = {}  # (guild_id, user_id) -> (code, expiry_monotonic)
+VAULT_CODE_TTL = 300
 
 
-async def verify_vault_dm(author, password, guild_id=None):
-    """Check the private code, then require a separate 509vault server message."""
+async def issue_vault_code(author, guild):
+    import secrets
     from time import monotonic
-    eligible = [
-        guild for guild in bot.guilds
-        if _vault_configured(guild.id)
-        and guild.get_member(author.id) is not None
-        and (guild_id is None or guild.id == guild_id)
-    ]
-    if not eligible:
-        return "No configured Vault found for your membership."
-    if len(eligible) > 1:
-        return "You share multiple Vault servers with me. DM 509vault SERVER_ID CODE to choose one."
-    guild = eligible[0]
-    entry = vault_data.get(str(guild.id), {})
-    if not hmac.compare_digest(_vault_digest(password, entry.get("salt", "")), entry.get("digest", "")):
-        return "Invalid Vault code."
-    vault_verified_dm[(guild.id, author.id)] = monotonic() + VAULT_DM_VERIFY_WINDOW
-    return (
-        f"✅ Code verified privately for **{guild.name}**. "
-        "Now type **509vault** (without the code) in any text channel of that server within 5 minutes. "
-        "SideBot will delete the command and grant temporary voice access."
-    )
-
+    if not _vault_configured(guild.id) or guild.get_member(author.id) is None:
+        return False, "Vault is not configured or you are not a member."
+    key = (guild.id, author.id)
+    code = f"{secrets.randbelow(900000) + 100000:06d}"
+    vault_one_time_codes[key] = (code, monotonic() + VAULT_CODE_TTL)
+    try:
+        await author.send(
+            f"🔐 **The 509 Vault** | **{guild.name}**\\n"
+            f"Your one-time access code: **{code}**\\n"
+            "Send ONLY these six digits in any text channel of that server within 5 minutes. "
+            "The code works once. SideBot will remove your message and its confirmation."
+        )
+    except nextcord.DiscordException:
+        vault_one_time_codes.pop(key, None)
+        return False, "I couldn't DM you. Enable DMs and try again."
+    return True, "Check your DMs for a one-time Vault code."
 
 def save_message_counts():
     _atomic_json_save(MESSAGE_COUNTS_FILE, message_counts)
@@ -2405,7 +2400,7 @@ async def list_commands(ctx):
         "badges": "Show unlocked/equipped rank badges and special 509 accolades",
         "equipbadge": "Equip any rank badge you have unlocked",
         "badge": "Manage special 509 achievement badges (Manage Roles required)",
-        "vault": "Private voice access: DM 509vault CODE, then send 509vault in server",
+        "vault": "Private voice access: 509vault sends a private one-time code; enter it in server",
         "ping": "Check bot latency and whether the live monitor is running",
         "clean": "Delete messages (alias: clear; Manage Messages required)",
         "create_role": "Create a Discord role (Manage Roles required)",
@@ -2436,7 +2431,7 @@ async def list_commands(ctx):
     lines.extend([
         "",
         "**Other triggers**",
-        "`509vault CODE` (DM), then `509vault` (server): Two-step Vault access",
+        "`509vault` (DM/server): Receive a single-use 6-digit code; post the code in server",
         "`509 onboarding` (DM): Restart private onboarding, nickname then joining reason",
         "New members: Private English/Creole welcome; join reasons Gaming, Just chatting, Both, Other",
         "Live alerts: TikTok, Twitch, YouTube website checks every 10 min in #live-notifications",
@@ -2936,69 +2931,71 @@ async def on_message(message):
             await message.channel.send("Vault command not recognized. Use 509 vault set SERVER_ID CODE or 509 vault enter SERVER_ID CODE.")
         return
 
-    # Two-step Vault: verify secret in DM; activate by writing 509vault in server.
+    # One-time Vault access: request a random code in DM or the server.
     vault_text = message.content.strip()
-    if re.match(r"^509vault(?:\s|$)", vault_text, re.I):
+    if vault_text.casefold() == "509vault":
         if message.guild:
             try:
                 await message.delete()
-            except nextcord.DiscordException as exc:
-                print(f"[vault] Couldn't delete invocation in {message.guild.name}: {exc}")
-                try:
-                    await message.author.send("Vault command deletion failed. Ask an admin to give SideBot Manage Messages permissions.")
-                except nextcord.DiscordException:
-                    pass
-                return
-            if vault_text.casefold() != "509vault":
-                try:
-                    await message.author.send("Never send Vault codes in server channels. DM me `509vault YOUR_CODE`, then send only `509vault` in the server.")
-                except nextcord.DiscordException:
-                    pass
-                return
-            from time import monotonic
-            key = (message.guild.id, message.author.id)
-            deadline = vault_verified_dm.pop(key, 0)
-            if deadline < monotonic():
-                try:
-                    await message.author.send("First verify privately: DM me `509vault YOUR_CODE`, then type `509vault` in your server within 5 minutes.")
-                except nextcord.DiscordException:
-                    pass
-                return
-            # The DM verification is single-use, then standard temporary Vault access.
-            entry = vault_data.get(str(message.guild.id), {})
-            role = message.guild.get_role(int(entry.get("role_id", 0))) if entry else None
-            channel = message.guild.get_channel(int(entry.get("channel_id", 0))) if entry else None
-            member = message.guild.get_member(message.author.id)
-            if not member or not role or not isinstance(channel, nextcord.VoiceChannel) or role >= message.guild.me.top_role:
-                result = "Vault setup is invalid. Ask a server admin to check it."
-            else:
-                try:
-                    await member.add_roles(role, reason="Two-step private Vault code verified")
-                    prior = vault_pending.pop(key, None)
-                    if prior and prior.get("task") and not prior["task"].done():
-                        prior["task"].cancel()
-                    vault_pending[key] = {"joined": False, "task": asyncio.create_task(
-                        _vault_expire_if_unused(message.guild.id, message.author.id)
-                    )}
-                    result = f"🔓 Access granted to {channel.name}. Join within 5 minutes; access ends when you leave."
-                except nextcord.DiscordException as exc:
-                    result = f"Couldn't grant access: {exc}"
-            try:
-                await message.author.send(result)
             except nextcord.DiscordException:
                 pass
+            ok, result = await issue_vault_code(message.author, message.guild)
+            if not ok:
+                try:
+                    await message.author.send(result)
+                except nextcord.DiscordException:
+                    await message.channel.send(result, delete_after=5)
             return
-        # Direct message step: secret stays out of guild chat.
-        parts = vault_text.split(maxsplit=2)
-        if len(parts) < 2:
-            await message.channel.send("Step 1: DM `509vault YOUR_CODE`. Step 2: type `509vault` in any channel of your server.")
+        eligible = [g for g in bot.guilds if _vault_configured(g.id) and g.get_member(message.author.id)]
+        if len(eligible) != 1:
+            await message.channel.send(
+                "Vault server unavailable or ambiguous. Type 509vault in the server channel to choose it."
+            )
             return
-        if len(parts) == 3 and parts[1].isdigit() and len(parts[1]) >= 15:
-            reply = await verify_vault_dm(message.author, parts[2], int(parts[1]))
-        else:
-            reply = await verify_vault_dm(message.author, vault_text[len("509vault"):].strip())
-        await message.channel.send(reply)
+        _, result = await issue_vault_code(message.author, eligible[0])
+        if result.startswith("I couldn't"):
+            await message.channel.send(result)
         return
+
+    # Recognize a 6-digit access code only when issued to this member in this server.
+    if message.guild and re.fullmatch(r"\\d{6}", vault_text):
+        from time import monotonic
+        key = (message.guild.id, message.author.id)
+        issued = vault_one_time_codes.get(key)
+        if issued and issued[0] == vault_text:
+            # A match is consumed immediately; other people's digits are not Vault commands.
+            vault_one_time_codes.pop(key, None)
+            try:
+                await message.delete()
+            except nextcord.DiscordException:
+                try:
+                    await message.author.send("SideBot needs Manage Messages to clear Vault codes safely. Access was not granted.")
+                except nextcord.DiscordException:
+                    pass
+                return
+            if issued[1] < monotonic():
+                confirmation = "⌛ Vault code expired. Send 509vault to request another."
+            else:
+                member = message.guild.get_member(message.author.id)
+                entry = vault_data.get(str(message.guild.id), {})
+                role = message.guild.get_role(int(entry.get("role_id", 0))) if entry else None
+                channel = message.guild.get_channel(int(entry.get("channel_id", 0))) if entry else None
+                if not member or not role or not isinstance(channel, nextcord.VoiceChannel) or role >= message.guild.me.top_role:
+                    confirmation = "Vault setup is invalid. Contact a server administrator."
+                else:
+                    try:
+                        await member.add_roles(role, reason="Single-use Vault access code")
+                        previous = vault_pending.pop(key, None)
+                        if previous and previous.get("task") and not previous["task"].done():
+                            previous["task"].cancel()
+                        vault_pending[key] = {"joined": False, "task": asyncio.create_task(
+                            _vault_expire_if_unused(message.guild.id, message.author.id)
+                        )}
+                        confirmation = f"🔓 {member.mention}, access granted to **{channel.name}**. Join within 5 minutes."
+                    except nextcord.DiscordException as exc:
+                        confirmation = f"Couldn't grant Vault access: {exc}"
+            await message.channel.send(confirmation, delete_after=5)
+            return
 
     if await handle_509_resource_shortcut(message):
         return
@@ -3783,7 +3780,7 @@ async def vault_group(ctx):
         "**The 509 Vault**\n"
         "Admins in server: `509 vault setup #voice-channel`\n"
         "Admins in my DMs: `509 vault set SERVER_ID YOUR_SECRET_CODE`\n"
-        "Members DM **509vault CODE** first, then type **509vault** in any server channel within 5 minutes."
+        "Members send **509vault** in the server or my DMs to receive a six-digit code. Send the code in any server channel within 5 minutes; it works once."
     )
 
 @vault_group.command(name="setup")
