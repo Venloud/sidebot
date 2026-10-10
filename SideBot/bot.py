@@ -2928,7 +2928,7 @@ async def on_message(message):
 
     # Vault commands are intentionally allowed in DMs. Route before generic DM
     # command rejection and onboarding, without echoing any secret to a server.
-    if message.guild is None and re.match(r"^509\\s+vault\\s+(?:set|enter)\\s+", message.content.strip(), re.I):
+    if message.guild is None and re.match(r"^509\s+vault\s+(?:set|enter)\s+", message.content.strip(), re.I):
         ctx = await bot.get_context(message)
         if ctx.valid:
             await bot.invoke(ctx)
@@ -2938,7 +2938,7 @@ async def on_message(message):
 
     # Two-step Vault: verify secret in DM; activate by writing 509vault in server.
     vault_text = message.content.strip()
-    if re.match(r"^509vault(?:\\s|$)", vault_text, re.I):
+    if re.match(r"^509vault(?:\s|$)", vault_text, re.I):
         if message.guild:
             try:
                 await message.delete()
