@@ -2405,7 +2405,7 @@ async def list_commands(ctx):
         "badges": "Show unlocked/equipped rank badges and special 509 accolades",
         "equipbadge": "Equip any rank badge you have unlocked",
         "badge": "Manage special 509 achievement badges (Manage Roles required)",
-        "vault": "Private voice access: DM 509 vault enter SERVER_ID CODE",
+        "vault": "Private voice access: DM 509vault CODE, then send 509vault in server",
         "ping": "Check bot latency and whether the live monitor is running",
         "clean": "Delete messages (alias: clear; Manage Messages required)",
         "create_role": "Create a Discord role (Manage Roles required)",
@@ -2436,7 +2436,7 @@ async def list_commands(ctx):
     lines.extend([
         "",
         "**Other triggers**",
-        "`509vault`: Start private voice vault verification through DMs (not a slash command)",
+        "`509vault CODE` (DM), then `509vault` (server): Two-step Vault access",
         "`509 onboarding` (DM): Restart private onboarding, nickname then joining reason",
         "New members: Private English/Creole welcome; join reasons Gaming, Just chatting, Both, Other",
         "Live alerts: TikTok, Twitch, YouTube website checks every 10 min in #live-notifications",
