@@ -1024,17 +1024,18 @@ async def handle_onboarding(message):
             "**Why did you join? / Poukisa w rantre nan sèvè a?**\n"
             "1️⃣ Gaming\n"
             "2️⃣ Just chatting\n"
-            "3️⃣ Other\n\n"
-            "Reply with **1**, **2**, or **3**. / Reponn ak **1**, **2**, oswa **3**."
+            "3️⃣ Gaming and just chatting\n"
+            "4️⃣ Other\n\n"
+            "Reply with **1**, **2**, **3**, or **4**. / Reponn ak **1**, **2**, **3**, oswa **4**."
         )
     elif step == "reason":
-        reasons = {"1": "Gaming", "2": "Just chatting", "3": "Other"}
+        reasons = {"1": "Gaming", "2": "Just chatting", "3": "Gaming and just chatting", "4": "Other"}
         chosen = reasons.get(text.casefold()) if text in reasons else next(
             (label for label in reasons.values() if label.casefold() == text.casefold()), None
         )
         if not chosen:
             await message.channel.send(
-                "Please reply **1**, **2**, or **3**. / Tanpri reponn **1**, **2**, oswa **3**."
+                "Please reply **1**, **2**, **3**, or **4**. / Tanpri reponn **1**, **2**, **3**, oswa **4**."
             )
             return
         data["reason"] = chosen
