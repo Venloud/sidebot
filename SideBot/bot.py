@@ -3509,8 +3509,18 @@ async def clean(ctx, amount: int = 50):
     if not 1 <= amount <= 100:
         await ctx.send("**Chwazi yon kantite ant 1 ak 100.**")
         return
-    deleted = await ctx.channel.purge(limit=amount, check=lambda message: not message.pinned)
-    await ctx.send(f"**{len(deleted)} mesaj yo efase.**", delete_after=5)
+    # on_command already deletes the invocation. Select exactly the preceding
+    # amount of non-pinned messages, then remove the short-lived confirmation.
+    previous = []
+    async for message in ctx.channel.history(limit=amount + 100, before=ctx.message):
+        if message.pinned:
+            continue
+        previous.append(message)
+        if len(previous) == amount:
+            break
+    if previous:
+        await ctx.channel.delete_messages(previous) if len(previous) > 1 else await previous[0].delete()
+    await ctx.send(f"✅ Cleared {len(previous)} previous messages.", delete_after=3)
 
 # Day-one vault. Secrets are salted hashes; never print plaintext passwords.
 DAYONE_FILE = os.path.join(os.path.dirname(__file__), "dayone_access.json")
