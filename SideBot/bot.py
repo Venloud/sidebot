@@ -963,20 +963,14 @@ async def on_member_join(member):
     # Start onboarding via DM
     try:
         onboarding_state[member.id] = {
-            "step": "reason",
+            "step": "nickname",
             "data": {},
             "guild_id": member.guild.id
         }
         await member.send(
-            f"Alo **{member.display_name}**! 👋 Byenveni nan sèvè a!\n\n"
-            f"Map poze w kèk kesyon rapid pou nou ka konnen ou pi byen.\n\n"
-            f"**➡️ Poukisa w te rejwenn sèvè a?**\n"
-            f"1️⃣ FIFA\n"
-            f"2️⃣ COD (Call of Duty)\n"
-            f"3️⃣ Jis pale / Just chat\n"
-            f"4️⃣ Lòt bagay\n\n"
-            f"Reponn ak **1**, **2**, **3**, oswa **4**.\n\n"
-            f"💡 *Ou renmen SideBot? Invite li nan pwòp sèvè pa w:*\n{INVITE_URL}"
+            f"Alo **{member.display_name}**! 👋 Welcome to The 509! / Byenveni nan The 509!\n\n"
+            f"**What's your nickname? / Ki ti non w?**\n"
+            f"Reply with the name you'd like us to call you. / Reponn ak non ou vle nou rele w."
         )
     except Exception as e:
         print(f"Could not DM {member.name} for onboarding: {e}")
@@ -993,42 +987,34 @@ async def handle_onboarding(message):
     data = state["data"]
     text = message.content.strip()
 
-    if step == "reason":
-        reasons = {"1": "FIFA", "2": "COD", "3": "Just chat", "4": "Lòt bagay"}
-        if text not in reasons:
+    if step in ("nickname", "name"):
+        if not text or len(text) > 64:
             await message.channel.send(
-                "⚠️ Tanpri reponn ak **1**, **2**, **3**, oswa **4**."
+                "Please send a nickname (1–64 characters). / Voye yon ti non ki gen 1–64 karaktè."
             )
             return
-        data["reason"] = reasons[text]
-        state["step"] = "name"
-        await message.channel.send(
-            f"✅ *{data['reason']}* — bon!\n\n"
-            f"**➡️ Ki jan yo rele w? (non w oswa ti non w)**"
-        )
-
-    elif step == "name":
         data["name"] = text
-        if data["reason"] in ("FIFA", "COD"):
-            state["step"] = "game_username"
-            game = data["reason"]
-            await message.channel.send(
-                f"✅ Enchanté **{text}**!\n\n"
-                f"**➡️ Ki username w sou {game}?**"
-            )
-        else:
-            await finish_onboarding(message, state)
-
-    elif step == "game_username":
-        data["game_username"] = text
-        state["step"] = "console_username"
+        state["step"] = "reason"
         await message.channel.send(
-            f"✅ Username **{text}** — noté!\n\n"
-            f"**➡️ Ki username w sou PlayStation / console w? (PS4, PS5, Xbox, PC…)**"
+            f"Nice to meet you, **{nextcord.utils.escape_markdown(text)}**! / "
+            f"Kontan konnen w, **{nextcord.utils.escape_markdown(text)}**!\n\n"
+            "**Why did you join? / Poukisa w rantre nan sèvè a?**\n"
+            "1️⃣ Gaming\n"
+            "2️⃣ Just chatting\n"
+            "3️⃣ Other\n\n"
+            "Reply with **1**, **2**, or **3**. / Reponn ak **1**, **2**, oswa **3**."
         )
-
-    elif step == "console_username":
-        data["console_username"] = text
+    elif step == "reason":
+        reasons = {"1": "Gaming", "2": "Just chatting", "3": "Other"}
+        chosen = reasons.get(text.casefold()) if text in reasons else next(
+            (label for label in reasons.values() if label.casefold() == text.casefold()), None
+        )
+        if not chosen:
+            await message.channel.send(
+                "Please reply **1**, **2**, or **3**. / Tanpri reponn **1**, **2**, oswa **3**."
+            )
+            return
+        data["reason"] = chosen
         await finish_onboarding(message, state)
 
 
