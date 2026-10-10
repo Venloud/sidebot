@@ -861,6 +861,7 @@ async def on_ready():
         if badge_roles:
             await sync_all_rank_badge_roles(guild, badge_roles)
         await ensure_welcome_guide(guild)
+        await ensure_self_promote_topic(guild)
         await cleanup_stale_vault_roles(guild)
 
 @bot.event
@@ -1233,6 +1234,63 @@ def extract_social_links(content):
             continue
     return found
 
+
+
+def discover_social_profiles(content):
+    """Normalize URLs or usernames in #self-promote.
+
+    A plain handle is a *candidate*, not proof that accounts exist.
+    Platform-labeled handles avoid guessing: 'twitch venloud'.
+    """
+    found = extract_social_links(content)
+    text = content.strip()
+    if found:
+        return found
+    handle_re = r"@?([A-Za-z0-9_.-]{2,30})"
+    bare = re.fullmatch(handle_re, text)
+    tagged = re.fullmatch(
+        r"(youtube|yt|twitch|tiktok|instagram|insta)\s*[:=\-]?\s*" + handle_re,
+        text, re.IGNORECASE,
+    )
+    if tagged:
+        platform = {"yt":"youtube", "insta":"instagram"}.get(tagged.group(1).lower(), tagged.group(1).lower())
+        handle = tagged.group(2)
+        platforms = (platform,)
+    elif bare:
+        handle = bare.group(1)
+        platforms = ("youtube", "twitch", "tiktok")
+    else:
+        return {}
+    if handle.lower() in ("youtube","twitch","tiktok","instagram","hello","thanks","welcome","discord","live","link"):
+        return {}
+    # URL construction is a candidate only. Monitoring performs its own checks.
+    urls = {
+        "youtube": f"https://www.youtube.com/@{handle}",
+        "twitch": f"https://www.twitch.tv/{handle}",
+        "tiktok": f"https://www.tiktok.com/@{handle}",
+        "instagram": f"https://www.instagram.com/{handle}/",
+    }
+    return {platform: urls[platform] for platform in platforms}
+
+
+SELF_PROMOTE_TOPIC = (
+    "📣 Share your YouTube, Twitch, TikTok & Instagram profiles! "
+    "Post a profile LINK, a username (example: venloud), or specify a platform "
+    "(twitch venloud / youtube venloud / tiktok venloud). "
+    "SideBot saves profiles and checks YouTube/Twitch/TikTok for live streams; "
+    "verified live alerts go to #live-notifications. "
+    "A username alone is treated as a possible handle on all 3 platforms."
+)
+
+async def ensure_self_promote_topic(guild):
+    channel = nextcord.utils.get(guild.text_channels, name="self-promote")
+    if not channel or channel.topic == SELF_PROMOTE_TOPIC:
+        return
+    try:
+        if guild.me.guild_permissions.manage_channels:
+            await channel.edit(topic=SELF_PROMOTE_TOPIC, reason="Explain SideBot social profile tracking")
+    except nextcord.DiscordException as exc:
+        print(f"[social] Cannot update #self-promote topic: {exc}")
 
 def save_social_links():
     temp = SOCIAL_LINKS_FILE + ".tmp"
@@ -2619,7 +2677,7 @@ async def on_message(message):
         record_message_count(message)
         await grant_message_xp(message)
         if message.channel.name.lower() in SOCIAL_CHANNEL_NAMES:
-            links = extract_social_links(message.content)
+            links = discover_social_profiles(message.content)
             if links:
                 guild_links = social_links.setdefault(str(message.guild.id), {})
                 guild_links.setdefault(str(message.author.id), {}).update(links)
@@ -2885,9 +2943,9 @@ def profile_username(platform, url):
 
 async def notify_live(guild, name, platform, link):
     channel = next(
-        (c for c in guild.text_channels if c.name.lower() in ("notifications", "notification", "live-notifications")),
+        (c for c in guild.text_channels if c.name.lower() == "live-notifications"),
         None,
-    ) or nextcord.utils.get(guild.text_channels, name="live")
+    )
     if not channel:
         print(f"No notification channel in {guild.name}; skipped {platform} alert")
         return False
