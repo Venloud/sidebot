@@ -64,7 +64,28 @@ bot.tiktok_usernames = set()
 bot.twitch_usernames = set()
 
 # Onboarding conversation state  {user_id: {"step": str, "data": dict, "guild_id": int}}
-onboarding_state = {}
+ONBOARDING_STATE_FILE = os.path.join(os.path.dirname(__file__), "onboarding_state.json")
+
+def load_onboarding_state():
+    try:
+        with open(ONBOARDING_STATE_FILE, encoding="utf-8") as f:
+            raw = json.load(f)
+        return {int(k): v for k, v in raw.items()
+                if str(k).isdigit() and isinstance(v, dict)
+                and v.get("step") in ("nickname", "name", "reason")
+                and isinstance(v.get("guild_id"), int)
+                and isinstance(v.get("data"), dict)}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {}
+
+onboarding_state = load_onboarding_state()
+
+def save_onboarding_state():
+    temp = ONBOARDING_STATE_FILE + ".tmp"
+    with open(temp, "w", encoding="utf-8") as f:
+        json.dump(onboarding_state, f, ensure_ascii=False)
+    os.replace(temp, ONBOARDING_STATE_FILE)
+
 
 # AI chat conversation history — keyed by "{context}_{user_id}" so DM and server
 # mentions NEVER share history.  context is "dm" or "server".
@@ -967,6 +988,7 @@ async def on_member_join(member):
             "data": {},
             "guild_id": member.guild.id
         }
+        save_onboarding_state()
         await member.send(
             f"Alo **{member.display_name}**! 👋 Welcome to The 509! / Byenveni nan The 509!\n\n"
             f"**What's your nickname? / Ki ti non w?**\n"
@@ -995,6 +1017,7 @@ async def handle_onboarding(message):
             return
         data["name"] = text
         state["step"] = "reason"
+        save_onboarding_state()
         await message.channel.send(
             f"Nice to meet you, **{nextcord.utils.escape_markdown(text)}**! / "
             f"Kontan konnen w, **{nextcord.utils.escape_markdown(text)}**!\n\n"
@@ -1045,6 +1068,7 @@ async def finish_onboarding(message, state):
     }
     record_member_profile(profile)
     onboarding_state.pop(user_id, None)
+    save_onboarding_state()
 
     # Post summary to #member-info (fallback to #general)
     if guild:
@@ -2967,6 +2991,15 @@ async def on_message(message):
 
     # Handle DMs — three-stage pipeline
     if not message.guild:
+        if message.content.strip().casefold() in ("509 onboarding", "509 start onboarding", "restart onboarding"):
+            guild = next((g for g in bot.guilds if g.get_member(message.author.id)), None)
+            if guild is None:
+                await message.channel.send("I couldn't find your server membership.")
+                return
+            onboarding_state[message.author.id] = {"step": "nickname", "data": {}, "guild_id": guild.id}
+            save_onboarding_state()
+            await message.channel.send("What's your nickname? / Ki ti non w?")
+            return
         # Onboarding takes priority — never intercept mid-flow
         if message.author.id in onboarding_state:
             await handle_onboarding(message)
