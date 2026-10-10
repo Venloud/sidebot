@@ -2684,6 +2684,21 @@ async def on_message(message):
                 guild_links.setdefault(str(message.author.id), {}).update(links)
                 save_social_links()
                 add_event(f"Saved social profiles for {message.author.display_name}: {', '.join(links)}")
+                # This channel is an automatic listener; no command prefix needed.
+                # A synthesized URL from a bare handle is a candidate, not a verified account.
+                raw = message.content.strip()
+                explicit_link = bool(re.search(r"https?://", raw, re.IGNORECASE))
+                platform_label = bool(re.match(r"^(?:youtube|yt|twitch|tiktok|instagram|insta)\\b", raw, re.I))
+                heading = ("**Saved your submitted profile link(s):**" if explicit_link else
+                           "**Found possible profile links for your username (not verified):**")
+                lines = [f"**{p.title()}:** {url}" for p, url in links.items()]
+                await message.reply(
+                    heading + "\n" + "\n".join(lines) +
+                    "\nSideBot will check supported YouTube, Twitch and TikTok accounts for livestreams. "
+                    "Instagram Live checks are not supported yet.",
+                    allowed_mentions=nextcord.AllowedMentions.none(),
+                )
+                return
         answer = social_query(message)
         if answer is not None:
             await message.reply(answer, allowed_mentions=nextcord.AllowedMentions.none())
