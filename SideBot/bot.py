@@ -991,7 +991,7 @@ async def on_member_join(member):
         save_onboarding_state()
         await member.send(
             f"Alo **{member.display_name}**! 👋 Welcome to The 509! / Byenveni nan The 509!\n\n"
-            f"**What's your nickname? / Ki ti non w?**\n"
+            f"**What's your nickname? / Kijan w vle nou rele w nan server?**\n"
             f"Reply with the name you'd like us to call you. / Reponn ak non ou vle nou rele w."
         )
     except Exception as e:
@@ -1012,7 +1012,7 @@ async def handle_onboarding(message):
     if step in ("nickname", "name"):
         if not text or len(text) > 64:
             await message.channel.send(
-                "Please send a nickname (1–64 characters). / Voye yon ti non ki gen 1–64 karaktè."
+                "Please send a nickname (1–64 characters). / Voye non ou vle nou rele w la (1–64 karaktè)."
             )
             return
         data["name"] = text
@@ -2998,7 +2998,7 @@ async def on_message(message):
                 return
             onboarding_state[message.author.id] = {"step": "nickname", "data": {}, "guild_id": guild.id}
             save_onboarding_state()
-            await message.channel.send("What's your nickname? / Ki ti non w?")
+            await message.channel.send("What's your nickname? / Kijan w vle nou rele w nan server?")
             return
         # Onboarding takes priority — never intercept mid-flow
         if message.author.id in onboarding_state:
