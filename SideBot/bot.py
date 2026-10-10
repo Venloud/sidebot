@@ -889,6 +889,7 @@ async def on_ready():
     bot_start_time = datetime.utcnow().isoformat()
     print(f"Bot is ready! Logged in as {bot.user.name}")
     print("Mwen back anbet! 🚀")
+    print("[vault] ACTIVE MODE: random six-digit single-use DM codes; 509vault issues a code")
     if not getattr(bot, "_stale_vault_checked", False):
         bot._stale_vault_checked = True
         await remove_stale_vault_slash_commands()
