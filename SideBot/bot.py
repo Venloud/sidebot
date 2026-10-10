@@ -1484,18 +1484,35 @@ vault_one_time_codes = {}  # (guild_id, user_id) -> (code, expiry_monotonic)
 VAULT_CODE_TTL = 300
 
 
+def _vault_channel_ready(guild):
+    """Six-digit Vault mode needs only a protected voice channel and access role."""
+    entry = vault_data.get(str(guild.id), {})
+    try:
+        role = guild.get_role(int(entry.get("role_id", 0)))
+        channel = guild.get_channel(int(entry.get("channel_id", 0)))
+    except (TypeError, ValueError):
+        return False
+    return bool(role and isinstance(channel, nextcord.VoiceChannel) and role < guild.me.top_role)
+
+
 async def issue_vault_code(author, guild):
     import secrets
     from time import monotonic
-    if not _vault_configured(guild.id) or guild.get_member(author.id) is None:
-        return False, "Vault is not configured or you are not a member."
-    key = (guild.id, author.id)
+    if not _vault_channel_ready(guild):
+        return False, "Vault channel or Secret Access role not configured. Ask an admin to run Vault setup."
+    member = guild.get_member(author.id)
+    if member is None:
+        try:
+            member = await guild.fetch_member(author.id)
+        except nextcord.DiscordException:
+            return False, "I couldn't confirm your membership in this server."
+    key = (guild.id, member.id)
     code = f"{secrets.randbelow(900000) + 100000:06d}"
     vault_one_time_codes[key] = (code, monotonic() + VAULT_CODE_TTL)
     try:
         await author.send(
-            f"🔐 **The 509 Vault** | **{guild.name}**\n"
-            f"Your one-time access code: **{code}**\n"
+            f"🔐 **The 509 Vault** | **{guild.name}**\\n"
+            f"Your one-time access code: **{code}**\\n"
             "Send ONLY these six digits in any text channel of that server within 5 minutes. "
             "The code works once. SideBot will remove your message and its confirmation."
         )
@@ -2947,7 +2964,7 @@ async def on_message(message):
                 except nextcord.DiscordException:
                     await message.channel.send(result, delete_after=5)
             return
-        eligible = [g for g in bot.guilds if _vault_configured(g.id) and g.get_member(message.author.id)]
+        eligible = [g for g in bot.guilds if _vault_channel_ready(g) and g.get_member(message.author.id)]
         if len(eligible) != 1:
             await message.channel.send(
                 "Vault server unavailable or ambiguous. Type 509vault in the server channel to choose it."
