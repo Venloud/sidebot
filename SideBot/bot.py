@@ -2262,7 +2262,7 @@ async def list_commands(ctx):
         "badges": "Show unlocked/equipped rank badges and special 509 accolades",
         "equipbadge": "Equip any rank badge you have unlocked",
         "badge": "Manage special 509 achievement badges (Manage Roles required)",
-        "vault": "Configure one-time secret voice access; members use /vault",
+        "vault": "Private voice access: DM 509 vault enter SERVER_ID CODE",
         "ping": "Check bot latency and monitor status",
         "clean": "Delete messages (alias: clear; Manage Messages required)",
         "create_role": "Create a Discord role (Manage Roles required)",
@@ -2284,11 +2284,11 @@ async def list_commands(ctx):
         "ban": "Ban a member, optionally with a reason",
         "unban": "Unban by numeric user ID",
     }
-    lines = ["**SideBot commands**", "Prefixes: `509`, `bot`, `sidebot`, `bobot`, `side bot`, `!`"]
+    lines = ["**SideBot commands**", "Text prefixes: `509`, `bot`, `sidebot`, `bobot`, `side bot`, `!`", "Slash commands use `/` where registered."]
     for command in sorted(bot.commands, key=lambda item: item.name):
-        if command.hidden or command.name == "help":
+        if command.hidden or command.name in ("help", "vault"):
             continue
-        lines.append(f"`bot {command.name}`: {descriptions.get(command.name, command.help or 'Bot command')}")
+        lines.append(f"`{'/' if bot.get_application_command(command.name) else '509 '}{command.name}`: {descriptions.get(command.name, command.help or 'Bot command')}")
     lines.extend([
         "",
         "**Other triggers**",
@@ -3587,6 +3587,20 @@ async def vault_setup(ctx, channel: nextcord.VoiceChannel):
         f"Set the code privately with `509 vault set {ctx.guild.id} YOUR_CODE` in my DMs."
     )
 
+@vault_group.command(name="enter")
+async def vault_enter(ctx, guild_id: int, *, code: str):
+    """Private code entry: DM SideBot '509 vault enter SERVER_ID CODE'."""
+    if ctx.guild:
+        await ctx.send("Never post Vault codes in public. DM me: 509 vault enter SERVER_ID CODE", delete_after=15)
+        return
+    guild = bot.get_guild(guild_id)
+    member = guild.get_member(ctx.author.id) if guild else None
+    if not member:
+        await ctx.send("You must be a member of that server.")
+        return
+    ok, result = await _vault_grant(member, code)
+    await ctx.send(result if ok else f"❌ {result}")
+
 @vault_group.command(name="set")
 async def vault_set(ctx, guild_id: int, *, password: str):
     if ctx.guild:
@@ -3615,17 +3629,6 @@ async def vault_set(ctx, guild_id: int, *, password: str):
     entry["digest"] = _vault_digest(password, salt)
     save_vault()
     await ctx.send(f"Vault code updated for **{guild.name}**. I only stored a salted hash.")
-
-@bot.slash_command(name="vault", description="Enter The 509 secret Vault code")
-async def vault_slash(
-    interaction: nextcord.Interaction,
-    code: str = nextcord.SlashOption(description="Secret Vault code", required=True),
-):
-    if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
-        await interaction.response.send_message("Use this command inside The 509 server.", ephemeral=True)
-        return
-    ok, message = await _vault_grant(interaction.user, code)
-    await interaction.response.send_message(message if ok else f"❌ {message}", ephemeral=True)
 
 @bot.event
 async def on_voice_state_update(member, before, after):
