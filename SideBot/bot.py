@@ -852,12 +852,46 @@ async def free_games_wait_ready():
     await bot.wait_until_ready()
 
 
+async def remove_stale_vault_slash_commands():
+    """Unregister only the retired /vault command; preserve other slash commands."""
+    def remove_commands():
+        token = os.getenv("DISCORD_TOKEN")
+        if not token:
+            return
+        app_id = str(bot.user.id)
+        headers = {"Authorization": f"Bot {token}"}
+        endpoints = [f"https://discord.com/api/v10/applications/{app_id}/commands"]
+        endpoints += [
+            f"https://discord.com/api/v10/applications/{app_id}/guilds/{guild.id}/commands"
+            for guild in bot.guilds
+        ]
+        for endpoint in endpoints:
+            try:
+                response = requests.get(endpoint, headers=headers, timeout=12)
+                response.raise_for_status()
+                commands_data = response.json()
+                for item in commands_data:
+                    if item.get("name") != "vault":
+                        continue
+                    deleted = requests.delete(
+                        endpoint + "/" + str(item["id"]), headers=headers, timeout=12
+                    )
+                    deleted.raise_for_status()
+                    print(f"[vault] Removed stale /vault command from {endpoint.split('/commands')[0]}")
+            except (requests.RequestException, ValueError, KeyError) as exc:
+                print(f"[vault] Slash cleanup failed: {type(exc).__name__}: {str(exc)[:160]}")
+    await asyncio.to_thread(remove_commands)
+
+
 @bot.event
 async def on_ready():
     global bot_start_time
     bot_start_time = datetime.utcnow().isoformat()
     print(f"Bot is ready! Logged in as {bot.user.name}")
     print("Mwen back anbet! 🚀")
+    if not getattr(bot, "_stale_vault_checked", False):
+        bot._stale_vault_checked = True
+        await remove_stale_vault_slash_commands()
     if not getattr(bot, "_dashboard_started", False):
         threading.Thread(target=run_web_server, daemon=True).start()
         bot._dashboard_started = True
@@ -2865,7 +2899,7 @@ async def on_message(message):
         return
 
     # The original exact trigger is 509vault, not a discoverable slash command.
-    vault_match = re.fullmatch(r"509vault(?:\\s+(\\d{15,22})\\s+(\\S.{7,127}))?", message.content.strip(), re.I | re.S)
+    vault_match = re.fullmatch(r"509vault(?:\s+(\d{15,22})\s+(\S.{7,127}))?", message.content.strip(), re.I | re.S)
     if vault_match:
         if message.guild:
             try:
