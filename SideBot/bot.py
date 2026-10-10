@@ -2292,6 +2292,7 @@ async def list_commands(ctx):
     lines.extend([
         "",
         "**Other triggers**",
+        "509vault: Start private voice vault verification through DMs",
         "`bot kiye la`: Mention online channel members",
         "`bot saw util` / `bot kisa w itil`: Help in Haitian Creole",
         "`bot what @member youtube`: Look up a saved social profile",
@@ -2775,6 +2776,33 @@ async def handle_509_resource_shortcut(message):
 @bot.event
 async def on_message(message):
     if message.author.bot:
+        return
+
+    # The original exact trigger is 509vault, not a discoverable slash command.
+    vault_match = re.fullmatch(r"509vault(?:\\s+(\\d{15,22})\\s+(\\S.{7,127}))?", message.content.strip(), re.I | re.S)
+    if vault_match:
+        if message.guild:
+            try:
+                await message.delete()
+            except nextcord.DiscordException:
+                pass
+            try:
+                await message.author.send(
+                    f"🔐 The 509 Vault: reply here with 509vault {message.guild.id} YOUR_SECRET_CODE. Never share your code in a server channel."
+                )
+            except nextcord.DiscordException:
+                await message.channel.send("Please enable DMs from server members to use the private Vault.", delete_after=12)
+            return
+        if not vault_match.group(1):
+            await message.channel.send("Usage: 509vault SERVER_ID YOUR_SECRET_CODE (send this in my DMs).")
+            return
+        guild = bot.get_guild(int(vault_match.group(1)))
+        member = guild.get_member(message.author.id) if guild else None
+        if not member:
+            await message.channel.send("I couldn't find your membership in that server.")
+            return
+        ok, result = await _vault_grant(member, vault_match.group(2))
+        await message.channel.send(result if ok else f"❌ {result}")
         return
 
     if await handle_509_resource_shortcut(message):
@@ -3551,7 +3579,7 @@ async def vault_group(ctx):
         "**The 509 Vault**\n"
         "Admins in server: `509 vault setup #voice-channel`\n"
         "Admins in my DMs: `509 vault set SERVER_ID YOUR_SECRET_CODE`\n"
-        "Members should use **/vault** so the code is never posted publicly."
+        "Members can type **509vault** in the server and enter their code in my DMs."
     )
 
 @vault_group.command(name="setup")
