@@ -1493,8 +1493,8 @@ async def issue_vault_code(author, guild):
     vault_one_time_codes[key] = (code, monotonic() + VAULT_CODE_TTL)
     try:
         await author.send(
-            f"🔐 **The 509 Vault** | **{guild.name}**\\n"
-            f"Your one-time access code: **{code}**\\n"
+            f"🔐 **The 509 Vault** | **{guild.name}**\n"
+            f"Your one-time access code: **{code}**\n"
             "Send ONLY these six digits in any text channel of that server within 5 minutes. "
             "The code works once. SideBot will remove your message and its confirmation."
         )
@@ -2362,7 +2362,7 @@ async def bot_use_manual(ctx, page: int = 1):
         ("03 | CONNECT SOCIAL ACCOUNTS", "GOAL: Let members find your streams.\n1. Open #self-promote.\n2. Post your public TikTok, Twitch or YouTube profile URL.\n3. Look for SideBot's confirmation reply.\n4. SideBot checks saved profiles approximately every 10 minutes.\n5. Confirmed live alerts appear in #live-notifications.\nEXAMPLE: `https://www.tiktok.com/@venloud`\nCAUTION: Website checks sometimes return UNKNOWN and may miss streams."),
         ("04 | EVERYDAY COMMANDS", "GOAL: Explore useful features.\n1. `bot rank`, see your current XP rank.\n2. `bot leaderboard`, view the server leaderboard.\n3. `bot badges`, check earned badges.\n4. `bot links`, open the resource directory.\n5. `509 what calculator 2+2`, calculate an expression.\n6. Mention SideBot with a question to chat.\nTIP: Return to `bot list` for all available commands."),
         ("05 | MODERATOR TOOLS", "GOAL: Organize the server, if you have permissions.\n1. `bot create poll Messi | Ronaldo | X`, make a poll.\n2. `bot clean 10`, delete recent messages.\n3. `bot create`, get channel/thread/role/event syntax.\n4. `bot roleperms`, inspect permissions (admin only).\nWARNING: Moderation and role commands require the relevant permissions."),
-        ("06 | TROUBLESHOOTING", "NO RESPONSE? Try `bot ping` and check SideBot is online.\nNO WELCOME DM? Enable DMs, then DM `509 onboarding`.\nNO STREAM ALERT? Verify your profile was saved in #self-promote; live detection may return UNKNOWN.\nNEED A COMMAND? Type `bot list`.\nNEED PRIVATE VAULT ACCESS? Type `509vault` in the server, never share your code there.\nASSEMBLY COMPLETE: You're ready!"),
+        ("06 | TROUBLESHOOTING", "NO RESPONSE? Try `bot ping` and check SideBot is online.\nNO WELCOME DM? Enable DMs, then DM `509 onboarding`.\nNO STREAM ALERT? Verify your profile was saved in #self-promote; live detection may return UNKNOWN.\nNEED A COMMAND? Type `bot list`.\nNEED PRIVATE VAULT ACCESS? Type `509vault` to receive a DM code, then send those six digits in the server.\nASSEMBLY COMPLETE: You're ready!"),
     ]
     if not 1 <= page <= len(pages):
         await ctx.send(f"Choose a page from 1 to {len(pages)}. Example: `bot use 2`.")
@@ -2958,7 +2958,7 @@ async def on_message(message):
         return
 
     # Recognize a 6-digit access code only when issued to this member in this server.
-    if message.guild and re.fullmatch(r"\\d{6}", vault_text):
+    if message.guild and re.fullmatch(r"\d{6}", vault_text):
         from time import monotonic
         key = (message.guild.id, message.author.id)
         issued = vault_one_time_codes.get(key)
