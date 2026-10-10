@@ -3052,7 +3052,7 @@ def check_twitch_live(username, access_token):
     url = f"https://api.twitch.tv/helix/streams?user_login={username}"
     headers = {"Client-ID": TWITCH_CLIENT_ID, "Authorization": f"Bearer {access_token}"}
     if not access_token or not TWITCH_CLIENT_ID:
-        return (False, None)
+        return None
     try:
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
@@ -3060,7 +3060,7 @@ def check_twitch_live(username, access_token):
         return (True, f"https://www.twitch.tv/{username}") if data else (False, None)
     except (requests.RequestException, ValueError) as e:
         print(f"Twitch check failed for {username}: {e}")
-        return (False, None)
+        return None
 
 def check_tiktok_live(username):
     """
@@ -3086,7 +3086,7 @@ def check_tiktok_live(username):
         )
         print(f"TikTok [{username}] status={response.status_code} final_url={response.url[:100]}")
         if response.status_code != 200:
-            return (False, None)
+            return None
 
         text = response.text
         # TikTok embeds liveRoomStatus in the SSR JSON on every /live page.
@@ -3094,14 +3094,14 @@ def check_tiktok_live(username):
         match = re.search(r'"liveRoomStatus":(\d+)', text)
         if not match:
             print(f"TikTok [{username}] liveRoomStatus not found in page")
-            return (False, None)
+            return None
         status = int(match.group(1))
         is_live = status != 0
         print(f"TikTok [{username}] liveRoomStatus={status} is_live={is_live}")
         return (True, url) if is_live else (False, None)
     except Exception as e:
         print(f"TikTok check error for {username}: {e}")
-        return (False, None)
+        return None
 
 async def send_live_notification(message):
     for guild in bot.guilds:
