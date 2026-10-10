@@ -1511,8 +1511,8 @@ async def issue_vault_code(author, guild):
     vault_one_time_codes[key] = (code, monotonic() + VAULT_CODE_TTL)
     try:
         await author.send(
-            f"🔐 **The 509 Vault** | **{guild.name}**\\n"
-            f"Your one-time access code: **{code}**\\n"
+            f"🔐 **The 509 Vault** | **{guild.name}**\n"
+            f"Your one-time access code: **{code}**\n"
             "Send ONLY these six digits in any text channel of that server within 5 minutes. "
             "The code works once. SideBot will remove your message and its confirmation."
         )
@@ -2964,7 +2964,18 @@ async def on_message(message):
                 except nextcord.DiscordException:
                     await message.channel.send(result, delete_after=5)
             return
-        eligible = [g for g in bot.guilds if _vault_channel_ready(g) and g.get_member(message.author.id)]
+        eligible = []
+        for guild in bot.guilds:
+            if not _vault_channel_ready(guild):
+                continue
+            member = guild.get_member(message.author.id)
+            if member is None:
+                try:
+                    member = await guild.fetch_member(message.author.id)
+                except nextcord.DiscordException:
+                    continue
+            if member:
+                eligible.append(guild)
         if len(eligible) != 1:
             await message.channel.send(
                 "Vault server unavailable or ambiguous. Type 509vault in the server channel to choose it."
