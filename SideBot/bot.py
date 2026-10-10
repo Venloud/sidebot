@@ -163,7 +163,7 @@ def is_invite_response(raw: str) -> bool:
 
 # ── Command-detection helper ───────────────────────────────────
 _REGISTERED_COMMANDS = {
-    "whoslive", "clean", "clear", "silent", "custom", "links", "anime", "movies", "football", "manga", "music", "clips", "games", "dayone", "create", "create_role", "assign_role",
+    "whoslive", "what", "clean", "clear", "silent", "custom", "links", "anime", "movies", "football", "manga", "music", "clips", "games", "dayone", "create", "create_role", "assign_role",
     "create_poll", "assign_poll_role", "invite", "send", "wipe",
     "join", "leave", "list", "delete_role", "create_access_role", "kick", "ban", "unban", "roleperms", "rolepermissions", "rank", "leaderboard", "top", "ranks", "setupranks", "rankicons", "badges", "badge", "equipbadge", "equiprankbadge", "vault",
 }
@@ -2109,10 +2109,77 @@ async def handle_custom_trigger(message):
         print(f"Custom command {name} failed: {exc}")
     return True
 
+
+def safe_calculator_expression(expression):
+    """Arithmetic-only parser. Never execute arbitrary Python expressions."""
+    import ast
+    import operator
+    operations = {ast.Add: operator.add, ast.Sub: operator.sub,
+                  ast.Mult: operator.mul, ast.Div: operator.truediv,
+                  ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod,
+                  ast.Pow: operator.pow, ast.USub: operator.neg, ast.UAdd: operator.pos}
+    expression = expression.strip().replace("×", "*").replace("÷", "/").replace("^", "**")
+    if not expression or len(expression) > 100:
+        raise ValueError("Invalid expression length.")
+    tree = ast.parse(expression, mode="eval")
+    def walk(node, depth=0):
+        if depth > 16:
+            raise ValueError("Too deeply nested.")
+        if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+            if abs(node.value) > 1e12:
+                raise ValueError("Number too large.")
+            return node.value
+        if isinstance(node, ast.UnaryOp) and type(node.op) in operations:
+            return operations[type(node.op)](walk(node.operand, depth + 1))
+        if isinstance(node, ast.BinOp) and type(node.op) in operations:
+            a, b = walk(node.left, depth + 1), walk(node.right, depth + 1)
+            if isinstance(node.op, ast.Pow) and (abs(b) > 10 or abs(a) > 1e6):
+                raise ValueError("Exponent too large.")
+            result = operations[type(node.op)](a, b)
+            if abs(result) > 1e15:
+                raise ValueError("Result too large.")
+            return result
+        raise ValueError("Not arithmetic.")
+    return walk(tree.body)
+
+
+@bot.command(name="what")
+@commands.cooldown(1, 2, commands.BucketType.user)
+async def what_command(ctx, *, question: str = ""):
+    """Use any SideBot prefix with what time/day/calculator."""
+    from zoneinfo import ZoneInfo
+    request = re.sub(r"\s+", " ", question.casefold().strip(" ?!."))
+    now = datetime.now(ZoneInfo("America/New_York"))
+    if request in ("time", "time is it", "the time", "current time", "time now"):
+        await ctx.send(f"🕒 It's **{now:%I:%M %p}** Eastern time.")
+        return
+    if request in ("day", "day is it", "day today", "today", "the day", "date", "date is it", "the date"):
+        await ctx.send(f"📅 Today is **{now:%A, %B %d, %Y}** (Eastern time).")
+        return
+    first = re.fullmatch(r"(?:calculator|calculate|calc)\s+(.+)", request)
+    last = re.fullmatch(r"(.+?)\s+(?:calculator|calculate|calc)", request)
+    expression = first.group(1) if first else last.group(1) if last else None
+    if expression is not None:
+        try:
+            value = safe_calculator_expression(expression)
+            output = f"{value:g}" if isinstance(value, float) else str(value)
+            await ctx.send(f"🧮 **{expression} = {output}**")
+        except (SyntaxError, ValueError, ZeroDivisionError, OverflowError):
+            await ctx.send("Invalid calculation. Try: 509 what calculator 2+2")
+        return
+    await ctx.send(
+        "**What commands:**\n"
+        "509 what calculator 2+2\n"
+        "509 what 2+2 calculator\n"
+        "509 what time is it?\n"
+        "509 what day is it?"
+    )
+
 @bot.command(name="list")
 async def list_commands(ctx):
     """Show all registered SideBot commands and supported chat triggers."""
     descriptions = {
+        "what": "Calculator, current time and date (example: 509 what calculator 2+2)",
         "rank": "View your XP and rank, optionally mention a member",
         "links": "Resource directory; moderators can set or remove URLs",
         "silent": "Turn short-lived command replies on or off: 509 silent on/off",
