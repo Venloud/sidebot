@@ -3,7 +3,9 @@ name: SideBot Discord
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"
+    # Keep a replacement queued before the five-hour-forty-minute bot run ends.
+    # Off-hour scheduling reduces GitHub Actions peak-hour delays.
+    - cron: "11,41 * * * *"
 
 permissions:
   contents: read
