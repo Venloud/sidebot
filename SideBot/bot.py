@@ -2027,14 +2027,15 @@ def sidebot_target_channel(guild, command_name):
 
 @bot.event
 async def on_command(ctx):
-    # Delete the invocation even when typed in the wrong channel.
-    if ctx.guild:
+    name = ctx.command.name if ctx.command else ""
+    # Cleanup commands must retain their invocation until cleanup completes.
+    # Otherwise permission/API failures silently erase the request.
+    if ctx.guild and name not in ("clean", "clear"):
         try:
             await ctx.message.delete()
         except nextcord.DiscordException:
             pass
 
-    name = ctx.command.name if ctx.command else ""
     if ctx.command and ctx.command.qualified_name == "create poll":
         name = "poll"
     target = sidebot_target_channel(ctx.guild, name)
@@ -3541,23 +3542,85 @@ async def ping(ctx):
 
 @bot.command(name="clean", aliases=["clear"])
 @commands.has_permissions(manage_messages=True)
-@commands.bot_has_permissions(manage_messages=True)
+@commands.bot_has_permissions(manage_messages=True, read_message_history=True)
 async def clean(ctx, amount: int = 50):
+    """Delete N preceding non-pinned messages plus the invocation and notice."""
     if not 1 <= amount <= 100:
-        await ctx.send("**Chwazi yon kantite ant 1 ak 100.**")
+        await ctx.send("**Chwazi yon kantite ant 1 ak 100.**", delete_after=5)
         return
-    # on_command already deletes the invocation. Select exactly the preceding
-    # amount of non-pinned messages, then remove the short-lived confirmation.
-    previous = []
-    async for message in ctx.channel.history(limit=amount + 100, before=ctx.message):
-        if message.pinned:
-            continue
-        previous.append(message)
-        if len(previous) == amount:
-            break
-    if previous:
-        await ctx.channel.delete_messages(previous) if len(previous) > 1 else await previous[0].delete()
-    await ctx.send(f"✅ Cleared {len(previous)} previous messages.", delete_after=3)
+    if not ctx.guild:
+        await ctx.send("Use this command in a server channel.", delete_after=5)
+        return
+
+    try:
+        # Fetch before deleting the invocation. Pinned messages never count.
+        previous = []
+        async for message in ctx.channel.history(limit=None, before=ctx.message):
+            if message.pinned:
+                continue
+            previous.append(message)
+            if len(previous) == amount:
+                break
+
+        deleted = 0
+        if len(previous) == 1:
+            await previous[0].delete()
+            deleted = 1
+        elif previous:
+            try:
+                # Discord bulk deletion supports only messages newer than 14 days.
+                await ctx.channel.delete_messages(previous)
+                deleted = len(previous)
+            except nextcord.DiscordException as bulk_error:
+                print(f"[clear] Bulk delete failed, retrying individually: {bulk_error}")
+                for target in previous:
+                    try:
+                        await target.delete()
+                        deleted += 1
+                    except nextcord.NotFound:
+                        deleted += 1  # Already removed by concurrent moderation.
+                    except nextcord.DiscordException as exc:
+                        print(f"[clear] Could not delete message {target.id}: {exc}")
+
+        # Delete the command only after the cleanup attempt.
+        try:
+            await ctx.message.delete()
+        except nextcord.DiscordException as exc:
+            print(f"[clear] Could not delete invocation: {exc}")
+
+        print(f"[clear] {ctx.guild.id}/{ctx.channel.id}: requested={amount}, deleted={deleted}")
+        if deleted < len(previous):
+            await ctx.send(
+                f"⚠️ Cleared {deleted}/{len(previous)} selected messages. Check SideBot's Manage Messages permission.",
+                delete_after=10,
+            )
+        else:
+            await ctx.send(f"✅ Cleared {deleted} previous messages.", delete_after=3)
+    except nextcord.DiscordException as exc:
+        print(f"[clear] Discord error: {type(exc).__name__}: {exc}")
+        await ctx.send(
+            "⚠️ Couldn't clear messages. Give SideBot Manage Messages and Read Message History in this channel.",
+            delete_after=10,
+        )
+    except Exception as exc:
+        print(f"[clear] Unexpected error: {type(exc).__name__}: {exc}\n{traceback.format_exc()}")
+        await ctx.send("⚠️ Clear failed. Check the SideBot workflow logs.", delete_after=10)
+
+
+@clean.error
+async def clean_error(ctx, error):
+    """Do not silently swallow cleanup permission/argument failures."""
+    if isinstance(error, commands.MissingPermissions):
+        detail = "You need Manage Messages to use this command."
+    elif isinstance(error, commands.BotMissingPermissions):
+        detail = "SideBot needs Manage Messages and Read Message History in this channel."
+    elif isinstance(error, (commands.BadArgument, commands.MissingRequiredArgument)):
+        detail = "Use `bot clear 5` with a number between 1 and 100."
+    else:
+        print(f"[clear] Command error: {type(error).__name__}: {error}")
+        detail = "Clear failed. Check the SideBot workflow logs."
+    await ctx.send(f"⚠️ {detail}", delete_after=10)
+
 
 # Day-one vault. Secrets are salted hashes; never print plaintext passwords.
 DAYONE_FILE = os.path.join(os.path.dirname(__file__), "dayone_access.json")
