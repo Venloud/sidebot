@@ -55,8 +55,19 @@ intents.message_content = True
 intents.members = True
 intents.presences = True
 
+def sidebot_command_prefix(bot_instance, message):
+    """Recognize SideBot text prefixes regardless of capitalization."""
+    prefixes = ("!", "509 ", "side bot ", "sidebot ", "bobot ", "bot ")
+    content = message.content
+    # Return the exact spelling typed so nextcord's prefix check still matches.
+    matched = [content[:len(prefix)] for prefix in prefixes
+               if content[:len(prefix)].casefold() == prefix.casefold()]
+    return commands.when_mentioned(bot_instance, message) + matched + list(prefixes)
+
+
 bot = commands.Bot(
-    command_prefix=commands.when_mentioned_or("!", "509 ", "side bot ", "sidebot ", "bobot ", "bot "),
+    command_prefix=sidebot_command_prefix,
+    case_insensitive=True,
     intents=intents,
 )
 
