@@ -22,7 +22,7 @@ jobs:
           python-version: "3.13"
           cache: pip
       - name: Compile Python
-        run: python -m py_compile SideBot/bot.py scripts/live_runner.py
+        run: python -W error -m py_compile SideBot/bot.py scripts/live_runner.py
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Import SideBot and register commands
