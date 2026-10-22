@@ -3654,10 +3654,10 @@ def dayone_entry(guild_id):
 async def dayone_group(ctx):
     await ctx.send(
         "**day-one access**\n"
-        "DM me: \`bot dayone verify SERVER_ID PASSWORD\`\n"
-        "Admins DM me: \`bot dayone set SERVER_ID permanent PASSWORD\` or "
-        "\`bot dayone set SERVER_ID temporary PASSWORD\`.\n"
-        "Admins in the server: \`bot dayone setup #secret-channel\`."
+        "DM me: `bot dayone verify SERVER_ID PASSWORD`\n"
+        "Admins DM me: `bot dayone set SERVER_ID permanent PASSWORD` or "
+        "`bot dayone set SERVER_ID temporary PASSWORD`.\n"
+        "Admins in the server: `bot dayone setup #secret-channel`."
     )
 
 
@@ -3723,7 +3723,7 @@ async def dayone_verify(ctx, guild_id: int, *, password: str):
         except nextcord.DiscordException:
             pass
         try:
-            await ctx.author.send("Please verify privately using \`bot dayone verify SERVER_ID PASSWORD\`.")
+            await ctx.author.send("Please verify privately using `bot dayone verify SERVER_ID PASSWORD`.")
         except nextcord.DiscordException:
             pass
         return
@@ -4175,11 +4175,11 @@ async def create_group(ctx):
     """Show creation options without creating anything."""
     await ctx.send(
         "**SideBot Create Commands**\n"
-        "\`bot create channel CHANNEL_NAME\`  Create a text channel\n"
-        "\`bot create thread THREAD_NAME\`  Start a thread in this channel\n"
-        "\`bot create role ROLE_NAME\`  Create a permission-free role\n"
-        "\`bot create poll Messi | Ronaldo | X\`  Create a multi-choice poll\n"
-        "\`bot create event TITLE | 2026-10-20 19:00 | 60 | #voice-channel\`  Schedule a voice event\n"
+        "`bot create channel CHANNEL_NAME`  Create a text channel\n"
+        "`bot create thread THREAD_NAME`  Start a thread in this channel\n"
+        "`bot create role ROLE_NAME`  Create a permission-free role\n"
+        "`bot create poll Messi | Ronaldo | X`  Create a multi-choice poll\n"
+        "`bot create event TITLE | 2026-10-20 19:00 | 60 | #voice-channel`  Schedule a voice event\n"
         "Event time must use UTC, duration is minutes. Only moderators can create resources."
     )
 
@@ -4278,7 +4278,7 @@ async def create_poll_sub(ctx, *, options: str):
     """Example: bot create poll Messi | Ronaldo | X"""
     names = [item.strip() for item in re.split(r"[|,]", options)]
     if not 2 <= len(names) <= 9 or any(not n or len(n) > 90 for n in names):
-        await ctx.send("Enter 2 to 9 options separated by \`|\`. Example: \`bot create poll Messi | Ronaldo | X\`")
+        await ctx.send("Enter 2 to 9 options separated by `|`. Example: `bot create poll Messi | Ronaldo | X`")
         return
     marks = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"]
     body = "**Vote for your choice**\n" + "\n".join(
@@ -4302,7 +4302,7 @@ async def create_event_sub(ctx, *, details: str):
     fields = [x.strip() for x in details.split("|")]
     if len(fields) != 4 or not fields[0] or len(fields[0]) > 100:
         await ctx.send(
-            "Usage: \`bot create event Game Night | 2026-10-20 19:00 | 60 | #voice-channel\` (UTC)"
+            "Usage: `bot create event Game Night | 2026-10-20 19:00 | 60 | #voice-channel` (UTC)"
         )
         return
     try:
