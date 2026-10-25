@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "repository": "Venloud/sidebot",
+  "skills": [
+    "python-testing",
+    "security-review",
+    "automation-audit-ops"
+  ],
+  "restrictions": "Preserve the current application, owner-approved design, assets and existing development environment.",
+  "upstream": "v2.2.3",
+  "memory": "Vandam canonical; no automatic observation or separate memory store"
+}
